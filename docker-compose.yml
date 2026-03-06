@@ -1,0 +1,8 @@
+services:
+  mikrodash:
+    build: .
+    container_name: mikrodash
+    env_file: .env
+    ports:
+      - "3081:3081"
+    restart: unless-stopped
