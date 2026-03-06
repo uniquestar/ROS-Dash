@@ -1,0 +1,9 @@
+# Environment variables - never commit these
+.env
+
+# Node modules - too large for git
+node_modules/
+
+# Mac junk
+.DS_Store
+
