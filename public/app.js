@@ -1,4 +1,4 @@
-/* MikroDash v0.5.0 */
+/* ROS-Dash v0.5.0 */
 'use strict';
 var socket = io();
 
@@ -59,7 +59,7 @@ var lastTalkers = null, lastLanData = null;
 var allLeases = [], leaseFilter = '';
 
 // ── Theme toggle ───────────────────────────────────────────────────────────
-var THEME_KEY = 'mikrodash_theme';
+var THEME_KEY = 'rosdash_theme';
 function applyTheme(t){
   document.documentElement.setAttribute('data-theme', t);
   document.documentElement.setAttribute('data-bs-theme', t === 'light' ? 'light' : 'dark');
@@ -91,7 +91,9 @@ function showPage(name){
   if(pageTitle) pageTitle.textContent = PAGE_TITLES[name]||name;
 }
 document.querySelectorAll('.nav-item').forEach(function(item){
-  item.addEventListener('click', function(e){e.preventDefault();showPage(item.dataset.page);});
+  item.addEventListener('click', function(e){
+  if(item.dataset.page) { e.preventDefault(); showPage(item.dataset.page); }
+});
 });
 
 // ── Keyboard shortcuts ─────────────────────────────────────────────────────
@@ -221,7 +223,20 @@ socket.on('lan:overview',function(data){
   // WAN IP — update both original field and diagram
   var wip=(data.wanIp||'').split('/')[0]||'—';
   var ndWanIp=$('ndWanIp'); if(ndWanIp)ndWanIp.textContent=wip;
-  if(wanIpDisplay)wanIpDisplay.textContent=wip;
+  // if(wanIpDisplay)wanIpDisplay.textContent=wip;
+
+socket.on('wan:ips', function(data) {
+  var ips = data.ips || [];
+  var ndWanIp = $('ndWanIp');
+  if (ndWanIp) ndWanIp.textContent = ips.length ? ips[0].split('/')[0] : '—';
+  if (wanIpDisplay) {
+    if (!ips.length) { wanIpDisplay.textContent = '—'; return; }
+    wanIpDisplay.innerHTML = ips.map(function(ip) {
+      return '<span style="display:block;line-height:1.4">' + ip + '</span>';
+    }).join('');
+  }
+});
+
   // LAN info strip
   var nets=data.networks||[];
   var ndLanCidr=$('ndLanCidr'); if(ndLanCidr)ndLanCidr.textContent=nets.length?nets.map(function(n){return n.cidr;}).join(', '):'—';
@@ -299,9 +314,9 @@ socket.on('talkers:update',function(data){
   if(!devices.length){if(lastTalkers)return;talkersTable.innerHTML='<tr><td colspan="4" class="empty-state">No devices</td></tr>';return;}
   lastTalkers=devices;
   talkersTable.innerHTML=devices.map(function(d){
-    return'<tr><td>'+esc(d.name||'\u2014')+'</td><td style="color:var(--text-muted)">'+esc(d.mac||'\u2014')+'</td>'+
-      '<td class="text-end" style="color:var(--accent-rx)">'+fmtMbps(d.rx_mbps)+'</td>'+
-      '<td class="text-end" style="color:var(--accent-tx)">'+fmtMbps(d.tx_mbps)+'</td></tr>';
+    return '<tr><td>'+(d.name||d.mac||'?')+'</td>'+
+      '<td style="font-family:var(--font-mono);font-size:.75rem">'+(d.mac||'')+'</td>'+
+      '<td class="text-end" style="color:var(--accent-rx)">'+d.conns+'</td></tr>';
   }).join('');
 });
 
@@ -450,6 +465,8 @@ socket.on('ifstatus:update',function(data){
 
 // ── WireGuard ──────────────────────────────────────────────────────────────
 socket.on('vpn:update',function(data){
+  var ndVpnCount = $('ndVpnCount');
+if (ndVpnCount) ndVpnCount.textContent = data.tunnels ? data.tunnels.filter(function(t){ return t.state === 'connected'; }).length : '—';
   var peers=(data.tunnels||[]).filter(function(t){return t.type==='WireGuard'&&t.state==='connected';});
   vpnCount.textContent=peers.length;
   vpnCount.className='badge '+(peers.length>0?'bg-green':'bg-secondary');

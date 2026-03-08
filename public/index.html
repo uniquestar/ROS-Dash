@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>MikroDash</title>
+  <title>ROS-Dash</title>
   <link rel="stylesheet" href="https://unpkg.com/@tabler/core@latest/dist/css/tabler.min.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -204,26 +204,26 @@
     }
     #systemCard{align-self:flex-start;width:100%}
     /* Dashboard grid */
-    .mikrodash-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr auto;gap:.75rem;margin-bottom:1rem}
+    .rosdash-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr auto;gap:.75rem;margin-bottom:1rem}
     /* Stacked columns span row 1, stack cards with gap */
-    .mikrodash-col{grid-row:1;display:flex;flex-direction:column;gap:.75rem}
-    .mikrodash-col>[data-card-id]{display:flex;flex-direction:column;flex:1}
-    .mikrodash-col>[data-card-id]>.card{flex:1;display:flex;flex-direction:column}
-    .mikrodash-col>[data-card-id]>.card>.card-body{flex:1}
+    .rosdash-col{grid-row:1;display:flex;flex-direction:column;gap:.75rem}
+    .rosdash-col>[data-card-id]{display:flex;flex-direction:column;flex:1}
+    .rosdash-col>[data-card-id]>.card{flex:1;display:flex;flex-direction:column}
+    .rosdash-col>[data-card-id]>.card>.card-body{flex:1}
     /* Connections in row 1, stretches full height */
     [data-card-id="connCard"]{grid-row:1;display:flex;flex-direction:column}
     [data-card-id="connCard"]>.card{flex:1;display:flex;flex-direction:column}
     [data-card-id="connCard"]>.card>.card-body{flex:1}
     [data-card-id="connCard"]>.card{height:100%}
     @media(max-width:991px){
-      .mikrodash-grid{grid-template-columns:repeat(2,1fr);grid-template-rows:auto auto}
-      .mikrodash-col,[data-card-id="connCard"]{grid-row:auto}
+      .rosdash-grid{grid-template-columns:repeat(2,1fr);grid-template-rows:auto auto}
+      .rosdash-col,[data-card-id="connCard"]{grid-row:auto}
     }
     @media(max-width:650px){
-      .mikrodash-grid{grid-template-columns:1fr;grid-template-rows:auto}
-      .mikrodash-col,[data-card-id="connCard"]{grid-row:auto;height:auto}
-      .mikrodash-col>[data-card-id]{flex:none}
-      .mikrodash-col>[data-card-id]>.card>.card-body{flex:none}
+      .rosdash-grid{grid-template-columns:1fr;grid-template-rows:auto}
+      .rosdash-col,[data-card-id="connCard"]{grid-row:auto;height:auto}
+      .rosdash-col>[data-card-id]{flex:none}
+      .rosdash-col>[data-card-id]>.card>.card-body{flex:none}
       [data-card-id="connCard"]>.card>.card-body{flex:none}
     }
     /* Ping chart */
@@ -272,7 +272,7 @@
     .map-label{font-family:var(--font-mono);font-size:9px;fill:rgba(244,114,182,1);text-anchor:middle;pointer-events:none;font-weight:700;text-shadow:0 0 4px rgba(244,114,182,.6)}
     .conn-bottom-grid{display:grid;grid-template-columns:1fr 260px;gap:.75rem;margin-top:.75rem}
     @media(max-width:767px){.conn-bottom-grid{grid-template-columns:1fr}}
-    /* Wireless horizontal scroll on mobile */
+    /* Wireless horizontal scroll on mobile 
     @media(max-width:700px){
       #page-wireless .card-body.p-0{ overflow-x:auto;-webkit-overflow-scrolling:touch }
       #page-wireless .table-responsive,
@@ -284,7 +284,7 @@
       #page-wireless colgroup col:nth-child(4){ width:110px }
       #page-wireless colgroup col:nth-child(5){ width:60px }
       #page-wireless colgroup col:nth-child(6){ width:70px }
-    }
+    }*/
     /* Connections map fullscreen overlay */
     #mapFsOverlay{display:none;position:fixed;inset:0;z-index:9999;background:var(--bg-deep);flex-direction:column}
     #mapFsOverlay.active{display:flex}
@@ -362,7 +362,7 @@
     .nd-dot-l2{fill:rgba(167,139,250,.7)}
     /* Networks card */
 
-    .net-wan-row{display:flex;align-items:baseline;justify-content:space-between;padding:.25rem .45rem;background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.14);border-radius:6px}
+    .net-wan-row{padding:.25rem .45rem;background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.14);border-radius:6px}
     .net-field-label{font-family:var(--font-mono);font-size:.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em}
     .net-field-val{font-family:var(--font-mono);font-size:.82rem;font-weight:600;color:var(--accent-rx)}
         html[data-theme="light"] select.form-select{background-color:rgba(255,255,255,.9)}
@@ -379,17 +379,17 @@
 <div id="navOverlay"></div>
 
 <nav id="sidenav">
-  <div class="nav-logo"><img src="/logo.png" alt="MikroDash" /></div>
+  <div class="nav-logo"><img src="/logo.png" alt="ROS-Dash" /></div>
   <div class="nav-items">
     <a class="nav-item active" data-page="dashboard" href="#">
       <span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
       <span class="nav-label">Dashboard</span>
     </a>
-    <a class="nav-item" data-page="wireless" href="#">
+   <!-- <a class="nav-item" data-page="wireless" href="#">
       <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor" stroke="none"/></svg></span>
       <span class="nav-label">Wireless</span>
       <span class="nav-badge" id="wirelessNavBadge">0</span>
-    </a>
+    </a>-->
     <a class="nav-item" data-page="interfaces" href="#">
       <span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="6" height="5" rx="1"/><rect x="9" y="3" width="6" height="5" rx="1"/><rect x="16" y="3" width="6" height="5" rx="1"/><rect x="5" y="16" width="6" height="5" rx="1"/><rect x="13" y="16" width="6" height="5" rx="1"/><line x1="5" y1="8" x2="5" y2="13"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="19" y1="8" x2="19" y2="13"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="13" x2="8" y2="16"/><line x1="16" y1="13" x2="16" y2="16"/></svg></span>
       <span class="nav-label">Interfaces</span>
@@ -424,12 +424,18 @@
       <span class="nav-label">About</span>
     </a>
   </div>
-
+<div style="padding:8px 0;border-top:1px solid var(--border);flex-shrink:0">
+    <a class="nav-item" href="/logout">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      <span class="nav-label">Logout</span>
+    </a>
+  </div>
+</nav>
 </nav>
 
 <div id="main">
   <div id="topbar">
-    <h1 id="topbarLogo">Mikro<span>Dash</span></h1>
+    <h1 id="topbarLogo">ROS-<span>Dash</span></h1>
     <div class="topbar-sep"></div>
     <span id="pageTitle">Dashboard</span>
     <div class="topbar-right">
@@ -482,7 +488,7 @@
         </div>
       </div>
 
-            <div id="dashGrid" class="mikrodash-grid">
+            <div id="dashGrid" class="rosdash-grid">
 
         <!-- Col 1: Connections -->
         <div data-card-id="connCard">
@@ -506,7 +512,7 @@
         </div>
 
         <!-- Col 2: System + Networks stacked -->
-        <div class="mikrodash-col">
+        <div class="rosdash-col">
           <div data-card-id="systemCard">
           <div class="card" id="systemCard">
             <div class="stale-overlay">&#9679; stale</div>
@@ -537,7 +543,7 @@
               <svg id="netDiagram" viewBox="0 0 340 172" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
                 <!-- Animated connection lines -->
                 <line id="ndLineWired"    x1="78"  y1="52"  x2="148" y2="75"  class="nd-line"/>
-                <line id="ndLineWireless" x1="78"  y1="124" x2="148" y2="85"  class="nd-line"/>
+                <line id="ndLineVpn" x1="78" y1="124" x2="148" y2="85" class="nd-line"/>
                 <line id="ndLineWan"      x1="262" y1="80"  x2="192" y2="80"  class="nd-line nd-line-wan"/>
 
                 <!-- Left: Wired clients -->
@@ -556,13 +562,20 @@
                 <!-- Left: Wireless clients -->
                 <g id="ndWirelessGroup">
                   <rect x="4" y="98" width="74" height="52" rx="7" class="nd-node"/>
-                  <!-- Wifi arc icon — shifted up to give count room -->
+                  <!-- Wifi arc icon — shifted up to give count room
                   <path d="M29,111 Q41,101 53,111" fill="none" stroke="rgba(167,139,250,.7)" stroke-width="1.4" stroke-linecap="round"/>
                   <path d="M33,115 Q41,108 49,115" fill="none" stroke="rgba(167,139,250,.65)" stroke-width="1.4" stroke-linecap="round"/>
                   <path d="M36,119 Q41,115 46,119" fill="none" stroke="rgba(167,139,250,.6)" stroke-width="1.4" stroke-linecap="round"/>
                   <circle cx="41" cy="122" r="1.8" fill="rgba(167,139,250,.8)"/>
                   <text x="41" y="131" class="nd-label">Wireless</text>
                   <text id="ndWirelessCount" x="41" y="143" class="nd-count">—</text>
+                </g> -->
+
+                <g id="ndVpnGroup">
+                  <rect x="4" y="98" width="74" height="52" rx="7" class="nd-node"/>
+                  <text x="41" y="112" class="nd-label">VPN</text>
+                  <text x="41" y="122" class="nd-label">Peers</text>
+                  <text id="ndVpnCount" x="41" y="138" class="nd-count">—</text>
                 </g>
 
                 <!-- Center: Router -->
@@ -616,7 +629,7 @@
         </div>
 
         <!-- Col 3: Top Talkers + WireGuard stacked -->
-        <div class="mikrodash-col">
+        <div class="rosdash-col">
           <div data-card-id="talkersCard">
           <div class="card" id="talkersCard">
             <div class="stale-overlay">&#9679; stale</div>
@@ -626,7 +639,7 @@
             <div class="card-body p-0">
               <div class="table-responsive">
                 <table class="table table-vcenter mb-0">
-                  <thead><tr><th>Device</th><th>MAC</th><th class="text-end">&#8595;</th><th class="text-end">&#8593;</th></tr></thead>
+                  <thead><tr><th>Device</th><th>MAC</th><th class="text-end">Connections</th></tr></thead>
                   <tbody id="talkersTable"><tr><td colspan="4" class="empty-state">No devices</td></tr></tbody>
                 </table>
               </div>
@@ -701,6 +714,7 @@
   </div>
 
   <!-- WIRELESS -->
+  <!--
   <div class="page-view" id="page-wireless">
     <div class="container-fluid px-0" style="max-width:1400px;margin:0 auto">
       <div class="card" id="wirelessCard">
@@ -728,7 +742,7 @@
       </div>
     </div>
   </div>
-
+-->
   <!-- DHCP -->
   <div class="page-view" id="page-dhcp">
     <div class="container-fluid px-0" style="max-width:1400px;margin:0 auto">
@@ -838,7 +852,7 @@
         <div class="card-body" style="padding:1.5rem;text-align:center">
           <div style="display:flex;align-items:center;justify-content:center;gap:.75rem;margin-bottom:.5rem">
             <img src="logo.png" style="width:36px;height:36px;border-radius:8px;opacity:.9" onerror="this.style.display='none'"/>
-            <span style="font-size:1.35rem;font-weight:700;color:var(--text-main);letter-spacing:.01em">MikroDash</span>
+            <span style="font-size:1.35rem;font-weight:700;color:var(--text-main);letter-spacing:.01em">ROS-Dash</span>
           </div>
           <div style="font-family:var(--font-mono);font-size:.72rem;color:var(--accent-rx);margin-bottom:.4rem">Real-time MikroTik Router Dashboard</div>
           <div style="font-size:.72rem;color:var(--text-muted)">Built with Node.js · Socket.IO · Chart.js · Bootstrap</div>
@@ -861,10 +875,10 @@
         <div class="card-header"><h3 class="card-title">Support &amp; Donations</h3></div>
         <div class="card-body" style="padding:1rem 1.25rem">
           <div style="font-size:.78rem;color:var(--text-muted);line-height:1.7;margin-bottom:1rem">
-            MikroDash is free and open source. If it saves you time or you find it useful, consider supporting continued development.
+            ROS-Dash is free and open source. If it saves you time or you find it useful, consider supporting continued development.
           </div>
           <div style="display:flex;flex-wrap:wrap;gap:.6rem">
-            <a href="https://github.com/SecOps-7/MikroDash" target="_blank" rel="noopener" class="info-btn info-btn-outline">
+            <a href="https://github.com/uniquestar/ROS-Dash" target="_blank" rel="noopener" class="info-btn info-btn-outline">
               <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor;flex-shrink:0"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.604-3.369-1.341-3.369-1.341-.454-1.154-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0112 6.844a9.59 9.59 0 012.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.741 0 .267.18.579.688.481C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
               GitHub
             </a>
@@ -881,8 +895,8 @@
       <div class="card mb-3">
         <div class="card-header"><h3 class="card-title">Links</h3></div>
         <div class="card-body" style="padding:.75rem 1.25rem;display:flex;flex-wrap:wrap;gap:.5rem">
-          <a href="https://github.com/SecOps-7/MikroDash" target="_blank" rel="noopener" class="info-btn info-btn-outline">Documentation</a>
-          <a href="https://github.com/SecOps-7/MikroDash/issues" target="_blank" rel="noopener" class="info-btn info-btn-outline">Report a Bug</a>
+          <a href="https://github.com/uniquestar/ROS-Dash" target="_blank" rel="noopener" class="info-btn info-btn-outline">Documentation</a>
+          <a href="https://github.com/uniquestar/ROS-Dash/issues" target="_blank" rel="noopener" class="info-btn info-btn-outline">Report a Bug</a>
           <a href="https://mikrotik.com/software" target="_blank" rel="noopener" class="info-btn info-btn-outline">MikroTik RouterOS</a>
         </div>
       </div>
@@ -892,13 +906,13 @@
           <span style="font-size:1rem;flex-shrink:0">⚠️</span>
           <div style="font-size:.74rem;color:var(--text-muted);line-height:1.65">
             <strong style="color:rgba(200,215,240,.75)">Disclaimer</strong><br>
-            MikroDash is an independent, community-built project and is <strong style="color:rgba(200,215,240,.75)">not affiliated with, endorsed by, or associated with MikroTik SIA</strong> in any way. MikroTik and RouterOS are trademarks of MikroTik SIA. All product names and trademarks are the property of their respective owners.
+            ROS-Dash is an independent, community-built project and is <strong style="color:rgba(200,215,240,.75)">not affiliated with, endorsed by, or associated with MikroTik SIA</strong> in any way. MikroTik and RouterOS are trademarks of MikroTik SIA. All product names and trademarks are the property of their respective owners.
           </div>
         </div>
       </div>
 
       <div style="text-align:center;font-family:var(--font-mono);font-size:.65rem;color:rgba(148,163,190,.35);padding:.5rem 0 1.5rem">
-        MikroDash · MIT License · Made with ♥ for the MikroTik community
+        ROS-Dash · MIT License · Made with ♥ for the MikroTik community
       </div>
 
     </div>

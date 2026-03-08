@@ -1,5 +1,6 @@
 # Environment variables - never commit these
 .env
+users.json
 
 # Node modules - too large for git
 node_modules/

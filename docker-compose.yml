@@ -1,7 +1,7 @@
 services:
-  mikrodash:
+  ros-dash:
     build: .
-    container_name: mikrodash
+    container_name: ros-dash
     env_file: .env
     ports:
       - "3081:3081"

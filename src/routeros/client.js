@@ -1,5 +1,5 @@
 /**
- * MikroDash RouterOS client — node-routeros wrapper v0.3.3
+ * ROS-Dash RouterOS client — node-routeros wrapper v0.3.3
  *
  * node-routeros stream() signature:
  *   conn.stream(wordsArray, callback)   ← two args only, no params array
