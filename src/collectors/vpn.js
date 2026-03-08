@@ -1,3 +1,13 @@
+// Parse RouterOS relative time string e.g. "2m30s", "1h5m", "30s" into ms
+function parseHandshake(str) {
+  if (!str || str === 'never') return 0;
+  let ms = 0;
+  const h = str.match(/(\d+)h/); if (h) ms += parseInt(h[1]) * 3600000;
+  const m = str.match(/(\d+)m/); if (m) ms += parseInt(m[1]) * 60000;
+  const s = str.match(/(\d+)s/); if (s) ms += parseInt(s[1]) * 1000;
+  return Date.now() - ms;
+}
+
 class VpnCollector {
   constructor({ ros, io, pollMs, state }) {
     this.ros    = ros;
@@ -23,7 +33,8 @@ class VpnCollector {
     const now = Date.now();
     const tunnels = wgPeers.map(p => {
       const lh = p['last-handshake'] || '';
-      const connected = lh && lh !== 'never';
+      const OFFLINE_MS = 5 * 60 * 1000; // 5 minutes
+      const connected = lh && lh !== 'never' && (now - parseHandshake(lh)) < OFFLINE_MS;
       const peerName =
         (p.name && String(p.name).trim()) ? String(p.name).trim() :
         (p.comment && String(p.comment).trim()) ? String(p.comment).trim() :

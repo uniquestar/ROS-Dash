@@ -27,6 +27,7 @@ class ConnectionsCollector {
     this.arp = arp;
     this.state = state;
     this.prevIds = new Set();
+    this._talkers = null;
     this.timer = null;
   }
 
@@ -130,6 +131,8 @@ class ConnectionsCollector {
     const topPorts = Array.from(portCounts.entries())
       .sort((a,b) => b[1]-a[1]).slice(0,10)
       .map(([port,count]) => ({ port, count }));
+
+  if (this._talkers) this._talkers.updateFromConnections(topSources);
 
     this.io.emit('conn:update', {
       ts: Date.now(), total: (conns || []).length, newSinceLast,

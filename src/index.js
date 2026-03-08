@@ -1,5 +1,6 @@
 require('dotenv').config();
 
+const { makeToken, requireAuth, requireAuthSocket, validateUser } = require('./auth');
 const express = require('express');
 const http    = require('http');
 const { Server } = require('socket.io');
@@ -14,14 +15,51 @@ const ConnectionsCollector = require('./collectors/connections');
 const TopTalkersCollector  = require('./collectors/talkers');
 const LogsCollector        = require('./collectors/logs');
 const SystemCollector      = require('./collectors/system');
-const WirelessCollector    = require('./collectors/wireless');
+// const WirelessCollector    = require('./collectors/wireless');
 const VpnCollector         = require('./collectors/vpn');
 const FirewallCollector    = require('./collectors/firewall');
 const InterfaceStatusCollector = require('./collectors/interfaceStatus');
 const PingCollector         = require('./collectors/ping');
+const WanIpsCollector = require('./collectors/wanips');
 
 const app = express();
-app.use(express.static('public'));
+
+// Parse request bodies for login form
+app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
+
+// Login route — public, no auth required
+app.post('/login', (req, res) => {
+  const { username, password } = req.body;
+  if (validateUser(username, password)) {
+    const token = makeToken();
+    res.setHeader('Set-Cookie', `rosdash_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);
+    res.redirect('/');
+  } else {
+    res.redirect('/login.html?error=1');
+  }
+});
+
+// Logout route
+app.get('/logout', (_req, res) => {
+  res.setHeader('Set-Cookie', 'rosdash_token=; HttpOnly; Path=/; Max-Age=0');
+  res.redirect('/login.html');
+});
+
+// Serve login page specifically — no auth required
+app.get('/login.html', (_req, res) => {
+  res.sendFile('login.html', { root: 'public' });
+});
+
+
+// Serve logo without auth (needed for login page)
+app.get('/logo.png', (_req, res) => {
+  res.sendFile('logo.png', { root: 'public' });
+});
+
+// All other static files require auth
+app.use(requireAuth, express.static('public'));
+
 const server = http.createServer(app);
 const io = new Server(server);
 
@@ -34,7 +72,7 @@ const state = {
   lastTalkersTs:0,  lastTalkersErr:null,
   lastLogsTs:0,     lastLogsErr:null,
   lastSystemTs:0,   lastSystemErr:null,
-  lastWirelessTs:0, lastWirelessErr:null,
+  // lastWirelessTs:0, lastWirelessErr:null,
   lastVpnTs:0,      lastVpnErr:null,
   lastFirewallTs:0, lastFirewallErr:null,
   lastIfStatusTs:0,
@@ -61,13 +99,16 @@ const dhcpNetworks = new DhcpNetworksCollector({ros,io, pollMs:parseInt(process.
 const traffic      = new TrafficCollector     ({ros,io, defaultIf:DEFAULT_IF, historyMinutes:HISTORY_MINUTES, pollMs:1000, state});
 const conns        = new ConnectionsCollector ({ros,io, pollMs:parseInt(process.env.CONNS_POLL_MS    ||'3000',10),  topN:parseInt(process.env.TOP_N||'10',10), dhcpNetworks, dhcpLeases, arp, state});
 const talkers      = new TopTalkersCollector  ({ros,io, pollMs:parseInt(process.env.KIDS_POLL_MS     ||'3000',10),  state, topN:parseInt(process.env.TOP_TALKERS_N||'5',10)});
+conns._talkers = talkers;
 const logs         = new LogsCollector        ({ros,io, state});
 const system       = new SystemCollector      ({ros,io, pollMs:parseInt(process.env.SYSTEM_POLL_MS   ||'3000',10),  state});
-const wireless     = new WirelessCollector    ({ros,io, pollMs:parseInt(process.env.WIRELESS_POLL_MS ||'5000',10),  state, dhcpLeases, arp});
+// const wireless     = new WirelessCollector    ({ros,io, pollMs:parseInt(process.env.WIRELESS_POLL_MS ||'5000',10),  state, dhcpLeases, arp});
 const vpn          = new VpnCollector         ({ros,io, pollMs:parseInt(process.env.VPN_POLL_MS      ||'10000',10), state});
 const firewall     = new FirewallCollector    ({ros,io, pollMs:parseInt(process.env.FIREWALL_POLL_MS ||'10000',10), state, topN:parseInt(process.env.FIREWALL_TOP_N||'15',10)});
 const ifStatus     = new InterfaceStatusCollector({ros,io, pollMs:parseInt(process.env.IFSTATUS_POLL_MS||'5000',10), state});
 const ping         = new PingCollector({ros,io, pollMs:parseInt(process.env.PING_POLL_MS||'10000',10), state, target:process.env.PING_TARGET||'1.1.1.1'});
+const wanIps = new WanIpsCollector({ ros, io, pollMs: 30000, state, wanIface: DEFAULT_IF });
+
 
 app.get('/api/localcc', (_req, res) => {
   let geoip = null;
@@ -94,7 +135,7 @@ app.get('/healthz', (_req, res) => {
       talkers:  { ts:state.lastTalkersTs,  err:state.lastTalkersErr  },
       logs:     { ts:state.lastLogsTs,     err:state.lastLogsErr     },
       system:   { ts:state.lastSystemTs,   err:state.lastSystemErr   },
-      wireless: { ts:state.lastWirelessTs, err:state.lastWirelessErr },
+      // wireless: { ts:state.lastWirelessTs, err:state.lastWirelessErr },
       vpn:      { ts:state.lastVpnTs,      err:state.lastVpnErr      },
       firewall: { ts:state.lastFirewallTs, err:state.lastFirewallErr },
       ping:     { ts:state.lastPingTs,     err:null                  },
@@ -102,19 +143,22 @@ app.get('/healthz', (_req, res) => {
   });
 });
 
+ros.on('error', (err) => {
+  // Errors are logged inside connectLoop — suppress uncaught crash
+});
 ros.connectLoop();
 
 (async () => {
   try {
     await ros.waitUntilConnected(60000);
-    console.log('[MikroDash] v0.3.2 — RouterOS connected, starting collectors');
+    console.log('[ROS-Dash] v0.3.2 — RouterOS connected, starting collectors');
 
     // Streams (traffic, logs, leases) start themselves and register
     // reconnect handlers internally. Polling collectors do the same.
     // No staggering needed — node-routeros handles concurrent commands.
     // Start wireless immediately in parallel — don't wait for dhcpLeases
     // Names won't resolve on the very first poll but arrive on the second
-    wireless.start();
+    // wireless.start();
     await dhcpLeases.start();   // async: loads initial state first
     dhcpNetworks.start();
     arp.start();
@@ -127,10 +171,11 @@ ros.connectLoop();
     firewall.start();
     ifStatus.start();
     ping.start();
+    wanIps.start();
 
-    console.log('[MikroDash] All collectors running');
+    console.log('[ROS-Dash] All collectors running');
   } catch (e) {
-    console.error('[MikroDash] Startup error:', e && e.message ? e.message : e);
+    console.error('[ROS-Dash] Startup error:', e && e.message ? e.message : e);
   }
 })();
 
@@ -167,8 +212,10 @@ async function sendInitialState(socket) {
   socket.emit('leases:list', { ts: Date.now(), leases: allLeases });
 
   // Push last wireless snapshot immediately so client doesn't wait for next poll
-  if (wireless.lastPayload) socket.emit('wireless:update', wireless.lastPayload);
+  // if (wireless.lastPayload) socket.emit('wireless:update', wireless.lastPayload);
 }
+
+io.use(requireAuthSocket);
 
 io.on('connection', (socket) => {
   traffic.bindSocket(socket);
@@ -183,4 +230,4 @@ setInterval(() => {
 }, 15000);
 
 const PORT = parseInt(process.env.PORT || '3081', 10);
-server.listen(PORT, () => console.log(`[MikroDash] v0.4.8 listening on http://0.0.0.0:${PORT}`));
+server.listen(PORT, () => console.log(`[ROS-Dash] v0.4.8 listening on http://0.0.0.0:${PORT}`));
