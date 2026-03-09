@@ -1547,12 +1547,14 @@ sendNotif = function(title, body, tag){
 
   // Fetch current user role from token
   fetch('/api/users', { credentials: 'include' })
-    .then(function(r){ 
-      if (r.ok) {
-        // We're admin — show admin nav items
-        document.querySelectorAll('.admin-only').forEach(function(el){ el.style.display='flex'; });
-      }
-    }).catch(function(){});
+.then(function(r){ 
+    if (r.ok) {
+      document.querySelectorAll('.admin-only').forEach(function(el){ el.style.display='flex'; });
+    } else {
+      // Viewer — redirect away from admin pages if currently on one
+      if(window.location.hash === '#firewall') showPage('dashboard');
+    }
+  }).catch(function(){});
 
   window.loadUsers = function() {
     fetch('/api/users', { credentials: 'include' })
