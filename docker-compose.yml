@@ -3,7 +3,7 @@ services:
     build: .
     container_name: ros-dash
     volumes:
-      - /opt/ros-dash/users.json:/app/users.json
+      - /home/proav/ros-dash/users.json:/app/users.json
     ports:
       - "3081:3081"
     restart: unless-stopped
