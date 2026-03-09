@@ -1,0 +1,6 @@
+.env
+users.json
+node_modules
+.git
+screenshots
+README.md
