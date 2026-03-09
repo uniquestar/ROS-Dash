@@ -42,9 +42,9 @@ function validateUser(username, password) {
 }
 
 // Simple HMAC token: base64(expiry) + '.' + hmac(base64(expiry))
-function makeToken() {
+function makeToken(user) {
   const expiry  = Date.now() + SESSION_TTL;
-  const payload = Buffer.from(String(expiry)).toString('base64');
+  const payload = Buffer.from(JSON.stringify({ expiry, user })).toString('base64');
   const sig     = crypto.createHmac('sha256', DASH_SECRET).update(payload).digest('hex');
   return `${payload}.${sig}`;
 }
@@ -55,8 +55,10 @@ function verifyToken(token) {
   if (!payload || !sig) return false;
   const expected = crypto.createHmac('sha256', DASH_SECRET).update(payload).digest('hex');
   if (sig !== expected) return false;
-  const expiry = parseInt(Buffer.from(payload, 'base64').toString('ascii'), 10);
-  return Date.now() < expiry;
+  try {
+    const decoded = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+    return Date.now() < decoded.expiry;
+  } catch { return false; }
 }
 
 function getTokenFromRequest(req) {
@@ -82,4 +84,15 @@ function requireAuthSocket(socket, next) {
   next(new Error('Unauthorised'));
 }
 
-module.exports = { validateUser, makeToken, verifyToken, requireAuth, requireAuthSocket };
+function requireAdmin(req, res, next) {
+  const token = getTokenFromRequest(req);
+  if (!verifyToken(token)) return res.status(401).json({ error: 'Unauthorised' });
+  try {
+    const [payload] = token.split('.');
+    const decoded = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+    if (decoded.user && decoded.user.role === 'admin') return next();
+  } catch {}
+  res.status(403).json({ error: 'Forbidden' });
+}
+
+module.exports = { validateUser, makeToken, verifyToken, requireAuth, requireAuthSocket, requireAdmin };

@@ -81,14 +81,15 @@ if(themeToggle) themeToggle.addEventListener('click', function(){
 });
 
 // ── Page router ────────────────────────────────────────────────────────────
-var PAGE_TITLES = {dashboard:'Dashboard',connections:'Connections',wireless:'Wireless',interfaces:'Interfaces',dhcp:'DHCP',firewall:'Firewall',vpn:'VPN',logs:'Logs'};
-var PAGE_KEYS   = ['dashboard','wireless','interfaces','dhcp','vpn','connections','firewall','logs','info'];
+var PAGE_TITLES = {dashboard:'Dashboard',connections:'Connections',wireless:'Wireless',interfaces:'Interfaces',dhcp:'DHCP',firewall:'Firewall',vpn:'VPN',logs:'Logs',users:'User Management'};
+var PAGE_KEYS   = ['dashboard','wireless','interfaces','dhcp','vpn','connections','firewall','logs','info','users'];
 function showPage(name){
   document.querySelectorAll('.page-view').forEach(function(p){p.classList.remove('active');});
   document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active');});
   var page = $('page-'+name); if(page) page.classList.add('active');
   var nav  = document.querySelector('.nav-item[data-page="'+name+'"]'); if(nav) nav.classList.add('active');
   if(pageTitle) pageTitle.textContent = PAGE_TITLES[name]||name;
+  if(name === 'users' && typeof loadUsers === 'function') loadUsers();
 }
 document.querySelectorAll('.nav-item').forEach(function(item){
   item.addEventListener('click', function(e){
@@ -1538,4 +1539,126 @@ sendNotif = function(title, body, tag){
       if(window.innerWidth<=767) closeNav();
     });
   });
+})();
+
+// ── User Management ─────────────────────────────────────────────────────────
+(function(){
+  var currentUser = null;
+
+  // Fetch current user role from token
+  fetch('/api/users', { credentials: 'include' })
+    .then(function(r){ 
+      if (r.ok) {
+        // We're admin — show admin nav items
+        document.querySelectorAll('.admin-only').forEach(function(el){ el.style.display='flex'; });
+      }
+    }).catch(function(){});
+
+  window.loadUsers = function() {
+    fetch('/api/users', { credentials: 'include' })
+      .then(function(r){ return r.json(); })
+      .then(function(users) {
+        var tbody = $('usersTable');
+        if (!tbody) return;
+        if (!users.length) {
+          tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No users found</td></tr>';
+          return;
+        }
+        tbody.innerHTML = users.map(function(u) {
+          var created = u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—';
+          var roleBadge = u.role === 'admin'
+            ? '<span style="color:#f59e0b;font-size:.75rem;font-weight:600">ADMIN</span>'
+            : '<span style="color:var(--text-muted);font-size:.75rem">VIEWER</span>';
+          var toggleRole = u.role === 'admin'
+            ? '<button onclick="window._setRole(\''+u.username+'\',\'viewer\')" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Make Viewer</button>'
+            : '<button onclick="window._setRole(\''+u.username+'\',\'admin\')" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Make Admin</button>';
+          return '<tr>'+
+            '<td style="font-family:var(--font-mono)">'+u.username+'</td>'+
+            '<td>'+roleBadge+'</td>'+
+            '<td style="color:var(--text-muted);font-size:.8rem">'+created+'</td>'+
+            '<td class="text-end" style="display:flex;gap:.4rem;justify-content:flex-end;align-items:center">'+
+              toggleRole+
+              '<button onclick="window._chgPwd(\''+u.username+'\')" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Password</button>'+
+              '<button onclick="window._delUser(\''+u.username+'\')" style="background:transparent;border:1px solid rgba(248,113,113,.3);color:#f87171;border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Delete</button>'+
+            '</td>'+
+          '</tr>';
+        }).join('');
+      }).catch(function(){ 
+        var tbody = $('usersTable');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Failed to load users</td></tr>';
+      });
+  }
+
+
+  // Add user form toggle
+  var showAddBtn = $('showAddUser');
+  if (showAddBtn) showAddBtn.addEventListener('click', function(){
+    var f = $('addUserForm');
+    f.style.display = f.style.display === 'none' ? 'block' : 'none';
+  });
+
+  // Submit new user
+  var submitBtn = $('submitAddUser');
+  if (submitBtn) submitBtn.addEventListener('click', function(){
+    var username = $('newUsername').value.trim();
+    var password = $('newPassword').value;
+    var role     = $('newRole').value;
+    var errEl    = $('addUserError');
+    if (!username || !password) { errEl.textContent='Username and password required'; errEl.style.display='block'; return; }
+    fetch('/api/users', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, role })
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if (d.error) { errEl.textContent=d.error; errEl.style.display='block'; return; }
+      $('newUsername').value=''; $('newPassword').value=''; errEl.style.display='none';
+      $('addUserForm').style.display='none';
+      loadUsers();
+    });
+  });
+
+  // Change role
+  window._setRole = function(username, role) {
+    fetch('/api/users/'+username, {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role })
+    }).then(function(){ loadUsers(); });
+  };
+
+  // Change password modal
+  window._chgPwd = function(username) {
+    $('chgPwdUsername').value = username;
+    $('chgPwdNew').value = '';
+    $('chgPwdError').style.display = 'none';
+    var modal = $('chgPwdModal');
+    modal.style.display = 'flex';
+  };
+  var cancelBtn = $('chgPwdCancel');
+  if (cancelBtn) cancelBtn.addEventListener('click', function(){ $('chgPwdModal').style.display='none'; });
+  var pwdSubmit = $('chgPwdSubmit');
+  if (pwdSubmit) pwdSubmit.addEventListener('click', function(){
+    var username = $('chgPwdUsername').value;
+    var password = $('chgPwdNew').value;
+    var errEl    = $('chgPwdError');
+    if (!password) { errEl.textContent='Password required'; errEl.style.display='block'; return; }
+    fetch('/api/users/'+username, {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if (d.error) { errEl.textContent=d.error; errEl.style.display='block'; return; }
+      $('chgPwdModal').style.display='none';
+    });
+  });
+
+  // Delete user
+  window._delUser = function(username) {
+    if (!confirm('Delete user "'+username+'"? This cannot be undone.')) return;
+    fetch('/api/users/'+username, { method: 'DELETE', credentials: 'include' })
+      .then(function(){ loadUsers(); });
+  };
+
+  // Hide admin nav items by default — shown only if API confirms admin
+  document.querySelectorAll('.admin-only').forEach(function(el){ el.style.display='none'; });
 })();

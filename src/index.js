@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const { makeToken, requireAuth, requireAuthSocket, validateUser } = require('./auth');
+const { makeToken, requireAuth, requireAuthSocket, requireAdmin, validateUser } = require('./auth');
 const express = require('express');
 const http    = require('http');
 const { Server } = require('socket.io');
@@ -31,8 +31,9 @@ app.use(express.json());
 // Login route — public, no auth required
 app.post('/login', (req, res) => {
   const { username, password } = req.body;
-  if (validateUser(username, password)) {
-    const token = makeToken();
+const authedUser = validateUser(username, password);
+  if (authedUser) {
+    const token = makeToken(authedUser);
     res.setHeader('Set-Cookie', `rosdash_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);
     res.redirect('/');
   } else {
@@ -44,6 +45,62 @@ app.post('/login', (req, res) => {
 app.get('/logout', (_req, res) => {
   res.setHeader('Set-Cookie', 'rosdash_token=; HttpOnly; Path=/; Max-Age=0');
   res.redirect('/login.html');
+});
+
+// User management API — admin only
+const fs_users = require('fs');
+const path_users = require('path');
+const USERS_FILE = path_users.join(__dirname, '..', 'users.json');
+const crypto_users = require('crypto');
+
+function loadUsersFile() {
+  try { return JSON.parse(fs_users.readFileSync(USERS_FILE, 'utf8')); } catch { return {}; }
+}
+function saveUsersFile(users) {
+  fs_users.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+}
+function hashPassword(password) {
+  const salt = crypto_users.randomBytes(16).toString('hex');
+  const hash = crypto_users.pbkdf2Sync(password, salt, 100000, 64, 'sha256').toString('hex');
+  return `${salt}:${hash}`;
+}
+
+app.get('/api/users', requireAuth, requireAdmin, (_req, res) => {
+  const users = loadUsersFile();
+  const safe  = Object.entries(users).map(([username, u]) => ({
+    username, role: u.role, createdAt: u.createdAt,
+  }));
+  res.json(safe);
+});
+
+app.post('/api/users', requireAuth, requireAdmin, (req, res) => {
+  const { username, password, role } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  const users = loadUsersFile();
+  if (users[username]) return res.status(409).json({ error: 'User already exists' });
+  users[username] = { password: hashPassword(password), role: role === 'admin' ? 'admin' : 'viewer', createdAt: new Date().toISOString() };
+  saveUsersFile(users);
+  res.json({ ok: true });
+});
+
+app.patch('/api/users/:username', requireAuth, requireAdmin, (req, res) => {
+  const { username } = req.params;
+  const { password, role } = req.body;
+  const users = loadUsersFile();
+  if (!users[username]) return res.status(404).json({ error: 'User not found' });
+  if (password) users[username].password = hashPassword(password);
+  if (role)     users[username].role = role === 'admin' ? 'admin' : 'viewer';
+  saveUsersFile(users);
+  res.json({ ok: true });
+});
+
+app.delete('/api/users/:username', requireAuth, requireAdmin, (req, res) => {
+  const { username } = req.params;
+  const users = loadUsersFile();
+  if (!users[username]) return res.status(404).json({ error: 'User not found' });
+  delete users[username];
+  saveUsersFile(users);
+  res.json({ ok: true });
 });
 
 // Serve login page specifically — no auth required
