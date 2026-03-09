@@ -4,5 +4,8 @@ services:
     container_name: ros-dash
     network_mode: host
     volumes:
-      - /srv/ros-dash/users.json:/app/users.json
+      - ros-dash-data:/app/data
     restart: unless-stopped
+
+volumes:
+  ros-dash-data:
