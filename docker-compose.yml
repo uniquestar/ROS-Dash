@@ -4,8 +4,5 @@ services:
     container_name: ros-dash
     network_mode: host
     volumes:
-      - ros-dash-data:/app/data
+      - /var/snap/docker/common/ros-dash/users.json:/app/users.json
     restart: unless-stopped
-
-volumes:
-  ros-dash-data:
