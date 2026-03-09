@@ -92,7 +92,8 @@ class ConnectionsCollector {
       const dst  = c['dst-address'] || c.dst || '';
       if (!dst || isInCidrs(dst, lanCidrs)) continue;
       const ip   = dst.split(':')[0];
-      const port = c['dst-port'] || c['port'] || '';
+      const dstAddr = c['dst-address'] || c.dst || '';
+      const port = dstAddr.includes(':') ? dstAddr.split(':')[1] : '';
       const p    = (c.protocol || c['ip-protocol'] || '').toLowerCase();
       if (port) portCounts.set(port, (portCounts.get(port) || 0) + 1);
       if (geoip) {
