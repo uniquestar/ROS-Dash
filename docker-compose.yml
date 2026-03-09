@@ -2,7 +2,6 @@ services:
   ros-dash:
     build: .
     container_name: ros-dash
-    env_file: .env
     volumes:
       - /opt/ros-dash/users.json:/app/users.json
     ports:
