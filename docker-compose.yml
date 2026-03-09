@@ -3,7 +3,6 @@ services:
     build: .
     container_name: ros-dash
     network_mode: host
-    env_file: /srv/ros-dash/.env
     volumes:
       - /srv/ros-dash/users.json:/app/users.json
     restart: unless-stopped
