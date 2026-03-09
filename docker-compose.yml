@@ -2,8 +2,7 @@ services:
   ros-dash:
     build: .
     container_name: ros-dash
+    network_mode: host
     volumes:
       - /home/proav/ros-dash/users.json:/app/users.json
-    ports:
-      - "3081:3081"
     restart: unless-stopped
