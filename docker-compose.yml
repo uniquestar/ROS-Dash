@@ -4,7 +4,7 @@ services:
     container_name: ros-dash
     env_file: .env
     volumes:
-      - ./users.json:/app/users.json
+      - /opt/ros-dash/users.json:/app/users.json
     ports:
       - "3081:3081"
     restart: unless-stopped
