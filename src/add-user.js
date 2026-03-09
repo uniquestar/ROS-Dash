@@ -15,9 +15,10 @@ function hashPassword(password) {
   return `${salt}:${hash}`;
 }
 
-const [,, username, password] = process.argv;
+const [,, username, password, role] = process.argv;
 if (!username || !password) {
-  console.error('Usage: node src/add-user.js <username> <password>');
+  console.error('Usage: node src/add-user.js <username> <password> [role]');
+  console.error('Roles: admin, viewer (default: viewer)');
   process.exit(1);
 }
 
@@ -28,7 +29,7 @@ if (fs.existsSync(USERS_FILE)) {
 
 users[username] = {
   password: hashPassword(password),
-  role: 'viewer',  // ready for future roles
+  role: role === 'admin' ? 'admin' : 'viewer',
   createdAt: new Date().toISOString(),
 };
 
