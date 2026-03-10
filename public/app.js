@@ -309,15 +309,18 @@ socket.on('conn:update',function(data){
 });
 
 // ── Top Talkers ────────────────────────────────────────────────────────────
-socket.on('talkers:update',function(data){
-  var devices=data.devices||[];
-  var ndWired=$('ndWiredCount');if(ndWired)ndWired.textContent=devices.length;
-  if(!devices.length){if(lastTalkers)return;talkersTable.innerHTML='<tr><td colspan="4" class="empty-state">No devices</td></tr>';return;}
-  lastTalkers=devices;
-  talkersTable.innerHTML=devices.map(function(d){
-    return '<tr><td>'+(d.name||d.mac||'?')+'</td>'+
-      '<td style="font-family:var(--font-mono);font-size:.75rem">'+(d.mac||'')+'</td>'+
-      '<td class="text-end" style="color:var(--accent-rx)">'+d.conns+'</td></tr>';
+socket.on('neighbors:update',function(data){
+  var neighbors=data.neighbors||[];
+  var tbody=$('neighborsTable');
+  if(!tbody) return;
+  if(!neighbors.length){tbody.innerHTML='<tr><td colspan="4" class="empty-state">No neighbours found</td></tr>';return;}
+  tbody.innerHTML=neighbors.map(function(n){
+    return '<tr>'+
+      '<td style="font-weight:600">'+esc(n.identity||'—')+'</td>'+
+      '<td style="font-family:var(--font-mono);font-size:.75rem;color:var(--accent-rx)">'+esc(n.address||'—')+'</td>'+
+      '<td style="font-size:.75rem;color:var(--text-muted)">'+esc(n.interface||'—')+'</td>'+
+      '<td style="font-size:.72rem;color:var(--text-muted)">'+esc(n.version||'—')+'</td>'+
+      '</tr>';
   }).join('');
 });
 
@@ -636,7 +639,7 @@ var staleConfig=[
   {cardId:'trafficCard',  event:'traffic:update',  threshold:10000},
   {cardId:'systemCard',   event:'system:update',   threshold:15000},
   {cardId:'connCard',     event:'conn:update',      threshold:20000},
-  {cardId:'talkersCard',  event:'talkers:update',  threshold:20000},
+{cardId:'neighborsCard',  event:'neighbors:update',  threshold:120000},
   {cardId:'wirelessCard', event:'wireless:update', threshold:60000},
   {cardId:'vpnCard',      event:'vpn:update',       threshold:30000},
   {cardId:'firewallCard', event:'firewall:update', threshold:30000},
