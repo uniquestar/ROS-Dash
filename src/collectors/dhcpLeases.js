@@ -31,9 +31,11 @@ class DhcpLeasesCollector {
     const mac  = l['mac-address'] || l['active-mac-address'] || l.mac;
     const name = (l.comment && l.comment.trim()) ? l.comment.trim()
                : (l['host-name'] && l['host-name'].trim()) ? l['host-name'].trim() : '';
-    const status = l.status || '';
+    const status  = l.status || '';
+    const dynamic = l.dynamic === 'true' || l.dynamic === true;
+    const type    = dynamic ? 'dynamic' : 'static';
 
-    if (ip) this.byIP.set(ip, { name, mac, hostName: l['host-name'] || '', comment: l.comment || '', status });
+    if (ip) this.byIP.set(ip, { name, mac, hostName: l['host-name'] || '', comment: l.comment || '', status, type });
     if (mac) this.byMAC.set(mac, { name, ip });
 
     if (mac && ip && !this.seenMACs.has(mac)) {

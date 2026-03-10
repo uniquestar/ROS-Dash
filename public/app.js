@@ -529,15 +529,17 @@ function renderDhcp(leases){
     dhcpTotalBadge.style.fontSize = '.68rem';
   }
   if(dhcpNavBadge) dhcpNavBadge.textContent = count;
-  if(!filtered.length){dhcpTable.innerHTML='<tr><td colspan="4" class="empty-state">No leases'+(leaseFilter?' matching filter':'')+'\u2026</td></tr>';return;}
+   if(!filtered.length){dhcpTable.innerHTML='<tr><td colspan="5" class="empty-state">No leases'+(leaseFilter?' matching filter':'')+'\u2026</td></tr>';return;}
   dhcpTable.innerHTML=filtered.map(function(l){
     var st=(l.status||'').toLowerCase();
     var pillCls=st==='bound'?'bound':st==='waiting'||st==='offered'?'waiting':'expired';
+    var typeCls=l.type==='static'?'color:#f59e0b':'color:var(--text-muted)';
     return'<tr>'+
       '<td style="font-weight:600">'+esc(l.name||l.hostName||'\u2014')+'</td>'+
       '<td style="color:var(--accent-rx)">'+esc(l.ip)+'</td>'+
       '<td style="font-size:.7rem;color:var(--text-muted)">'+esc(l.mac||'\u2014')+'</td>'+
       '<td><span class="lease-pill '+pillCls+'">'+esc(l.status||'?')+'</span></td>'+
+      '<td style="font-size:.75rem;'+typeCls+'">'+esc(l.type||'dynamic')+'</td>'+
       '</tr>';
   }).join('');
 }
