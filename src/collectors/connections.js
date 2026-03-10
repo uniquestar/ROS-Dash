@@ -87,6 +87,7 @@ class ConnectionsCollector {
     const countryProto = new Map(); // cc -> {tcp,udp,other}
     const countryCity  = new Map(); // cc -> city
     const portCounts   = new Map(); // port -> count
+    const countryConns = new Map(); // cc -> [{src,dst,port,proto}]
 
     for (const c of (conns || [])) {
       const dst  = c['dst-address'] || c.dst || '';
@@ -104,6 +105,15 @@ class ConnectionsCollector {
           const cp = countryProto.get(cc) || { tcp:0, udp:0, other:0 };
           if (p === 'tcp') cp.tcp++; else if (p === 'udp') cp.udp++; else cp.other++;
           countryProto.set(cc, cp);
+          // Store individual connections per country (max 50)
+          if (!countryConns.has(cc)) countryConns.set(cc, []);
+          const conList = countryConns.get(cc);
+          if (conList.length < 50) {
+            const srcAddr = c['src-address'] || c.src || '';
+            const srcIp   = srcAddr.includes(':') ? srcAddr.split(':')[0] : srcAddr;
+            const r = this.resolveName(srcIp);
+            conList.push({ src: r.name || srcIp, dst: ip, port, proto: p });
+          }
         }
       }
     }
@@ -125,7 +135,8 @@ class ConnectionsCollector {
       .map(([cc, proto]) => ({
         cc, city: countryCity.get(cc) || '',
         count: (proto.tcp||0)+(proto.udp||0)+(proto.other||0),
-        proto
+        proto,
+        conns: countryConns.get(cc) || [],
       }))
       .sort((a,b) => b.count - a.count); // all countries, no cap
 

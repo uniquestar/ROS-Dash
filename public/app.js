@@ -1223,14 +1223,21 @@ sendNotif = function(title, body, tag){
           '</div>'+
           spark+
         '</div>'+
-        '<span class="conn-map-count">'+e.count+'</span>'+
+    '<span class="conn-map-count">'+e.count+'</span>'+
+        '<button class="conn-row-info" title="Show connections" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:.1rem .4rem;font-size:.68rem;cursor:pointer;margin-left:.4rem;flex-shrink:0">⋯</button>'+
       '</div>';
     }).join('');
 
     // Re-bind click handlers for filter
     list.querySelectorAll('.conn-map-row').forEach(function(row){
-      row.addEventListener('click',function(){
+      row.addEventListener('click',function(e){
         var cc=row.dataset.cc;
+        if(e.target.closest('.conn-row-info')){
+          var flag=iso2Flag(cc);
+          var name=CC_NAMES[cc]||cc;
+          if(typeof window.showCountryModal==='function') window.showCountryModal(cc, name, flag);
+          return;
+        }
         _selectedCC=(cc===_selectedCC)?null:cc;
         var lbl=$('connFilterLabel');
         if(lbl) lbl.style.display=_selectedCC?'':'none';
@@ -1523,6 +1530,43 @@ sendNotif = function(title, body, tag){
   });
 })();
 
+// ── Country connections modal ────────────────────────────────────────────────
+(function(){
+  var modal    = $('countryModal');
+  var closeBtn = $('countryModalClose');
+  var _ccConns = {};
+
+  // Store conns data when conn:update arrives
+  socket.on('conn:update', function(data){
+    (data.topCountries||[]).forEach(function(e){
+      if (e.conns) _ccConns[e.cc] = e.conns;
+    });
+  });
+
+  window.showCountryModal = function(cc, name, flag) {
+    var conns = _ccConns[cc] || [];
+    $('countryModalFlag').textContent  = flag || '';
+    $('countryModalTitle').textContent = name || cc;
+    $('countryModalCount').textContent = conns.length + ' connections shown';
+    var tbody = $('countryModalTable');
+    if (!conns.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No connection details available</td></tr>';
+    } else {
+      tbody.innerHTML = conns.map(function(c){
+        return '<tr>'+
+          '<td style="font-family:var(--font-mono);font-size:.72rem">'+esc(c.src)+'</td>'+
+          '<td style="font-family:var(--font-mono);font-size:.72rem">'+esc(c.dst)+'</td>'+
+          '<td style="font-family:var(--font-mono);font-size:.72rem">'+esc(c.port)+'</td>'+
+          '<td><span style="font-size:.68rem;padding:.1rem .35rem;border-radius:3px;background:rgba(99,130,190,.15)">'+esc(c.proto)+'</span></td>'+
+        '</tr>';
+      }).join('');
+    }
+    modal.style.display = 'flex';
+  };
+
+  if (closeBtn) closeBtn.addEventListener('click', function(){ modal.style.display = 'none'; });
+  modal.addEventListener('click', function(e){ if(e.target === modal) modal.style.display = 'none'; });
+})();
 
 // ── Mobile burger menu ──────────────────────────────────────────────
 (function(){
