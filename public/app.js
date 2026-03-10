@@ -324,6 +324,65 @@ socket.on('neighbors:update',function(data){
   }).join('');
 });
 
+// ── Switches ───────────────────────────────────────────────────────────────
+(function(){
+  var allPorts = [];
+  var switchesFilter = '';
+  var switchesSearch = $('switchesSearch');
+  if (switchesSearch) {
+    switchesSearch.addEventListener('input', function(){
+      switchesFilter = this.value.trim().toLowerCase();
+      renderSwitches(allPorts);
+    });
+  }
+
+  function renderSwitches(ports) {
+    var tbody  = $('switchesTable');
+    var badge  = $('switchesTotalBadge');
+    var navBadge = $('switchesNavBadge');
+    if (!tbody) return;
+    var filtered = switchesFilter
+      ? ports.filter(function(p){
+          var hay = (p.switch+' '+p.port+' '+p.mac+' '+p.name+' '+(p.ip||'')).toLowerCase();
+          return hay.indexOf(switchesFilter) !== -1;
+        })
+      : ports;
+    if (badge) { badge.textContent = filtered.length; }
+    if (navBadge) { navBadge.textContent = ports.length || ''; }
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No switch data'+(switchesFilter?' matching filter':'')+'\u2026</td></tr>';
+      return;
+    }
+    // Sort by switch name then port
+    filtered.sort(function(a,b){
+      if (a.switch !== b.switch) return a.switch.localeCompare(b.switch);
+      return a.port.localeCompare(b.port, undefined, {numeric:true});
+    });
+    tbody.innerHTML = filtered.map(function(p){
+return '<tr>'+
+        '<td style="font-size:.75rem;color:var(--text-muted)">'+esc(p.switch)+'</td>'+
+        '<td style="font-family:var(--font-mono);font-size:.75rem;font-weight:600">'+esc(p.port)+'</td>'+
+        '<td style="font-family:var(--font-mono);font-size:.72rem;color:var(--text-muted)">'+esc(p.mac)+'</td>'+
+        '<td style="font-weight:600">'+esc(p.name||'—')+'</td>'+
+        '<td style="font-family:var(--font-mono);font-size:.75rem;color:var(--accent-rx)">'+esc(p.ip||'—')+'</td>'+
+        '<td style="font-size:.75rem;color:var(--text-muted)">'+esc(p.vlan||'—')+'</td>'+
+        '</tr>';
+    }).join('');
+  }
+
+socket.on('switches:update', function(data){
+    allPorts = data.ports || [];
+    renderSwitches(allPorts);
+    // Rebuild MAC -> port lookup for DHCP table
+    window._switchPortByMac = {};
+    allPorts.forEach(function(p){
+      window._switchPortByMac[p.mac.toLowerCase()] = { switch: p.switch, port: p.port };
+    });
+    // Re-render DHCP if already loaded
+    if (allLeases && allLeases.length) renderDhcp(allLeases);
+  });
+})();
+
 // ── Interface Status ───────────────────────────────────────────────────────
 socket.on('ifstatus:update',function(data){
   var ifaces=data.interfaces||[];
@@ -520,7 +579,8 @@ if (ndVpnCount) ndVpnCount.textContent = data.tunnels ? data.tunnels.filter(func
 function renderDhcp(leases){
   var filtered = leaseFilter
     ? leases.filter(function(l){
-        var hay=(l.name+' '+l.ip+' '+l.mac+' '+l.comment).toLowerCase();
+        var sp=window._switchPortByMac&&l.mac?(window._switchPortByMac[l.mac.toLowerCase()]||null):null;
+        var hay=(l.name+' '+l.ip+' '+l.mac+' '+l.comment+' '+(sp?sp.switch+' '+sp.port:'')).toLowerCase();
         return hay.indexOf(leaseFilter)!==-1;
       })
     : leases;
@@ -532,17 +592,20 @@ function renderDhcp(leases){
     dhcpTotalBadge.style.fontSize = '.68rem';
   }
   if(dhcpNavBadge) dhcpNavBadge.textContent = count;
-   if(!filtered.length){dhcpTable.innerHTML='<tr><td colspan="5" class="empty-state">No leases'+(leaseFilter?' matching filter':'')+'\u2026</td></tr>';return;}
+if(!filtered.length){dhcpTable.innerHTML='<tr><td colspan="7" class="empty-state">No leases'+(leaseFilter?' matching filter':'')+'\u2026</td></tr>';return;}
   dhcpTable.innerHTML=filtered.map(function(l){
     var st=(l.status||'').toLowerCase();
     var pillCls=st==='bound'?'bound':st==='waiting'||st==='offered'?'waiting':'expired';
     var typeCls=l.type==='static'?'color:#f59e0b':'color:var(--text-muted)';
+    var sp=window._switchPortByMac&&l.mac?(window._switchPortByMac[l.mac.toLowerCase()]||null):null;
     return'<tr>'+
       '<td style="font-weight:600">'+esc(l.name||l.hostName||'\u2014')+'</td>'+
       '<td style="color:var(--accent-rx)">'+esc(l.ip)+'</td>'+
       '<td style="font-size:.7rem;color:var(--text-muted)">'+esc(l.mac||'\u2014')+'</td>'+
       '<td><span class="lease-pill '+pillCls+'">'+esc(l.status||'?')+'</span></td>'+
       '<td style="font-size:.75rem;'+typeCls+'">'+esc(l.type||'dynamic')+'</td>'+
+      '<td style="font-size:.75rem;color:var(--text-muted)">'+esc((sp&&sp.switch)||'\u2014')+'</td>'+
+      '<td style="font-family:var(--font-mono);font-size:.72rem;color:var(--text-muted)">'+esc((sp&&sp.port)||'\u2014')+'</td>'+
       '</tr>';
   }).join('');
 }
