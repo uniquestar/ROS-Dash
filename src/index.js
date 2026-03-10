@@ -22,6 +22,7 @@ const InterfaceStatusCollector = require('./collectors/interfaceStatus');
 const PingCollector        = require('./collectors/ping');
 const WanIpsCollector      = require('./collectors/wanips');
 const NeighborsCollector   = require('./collectors/neighbors');
+const SwitchesCollector    = require('./collectors/switches');
 
 const app = express();
 
@@ -136,6 +137,7 @@ const state = {
   lastIfStatusTs:0,
   lastPingTs:0,
   lastNeighborsTs: 0,
+  lastSwitchesTs:  0,
 };
 
 const ros = new ROS({
@@ -168,7 +170,7 @@ const ifStatus     = new InterfaceStatusCollector({ros,io, pollMs:parseInt(proce
 const ping         = new PingCollector({ros,io, pollMs:parseInt(process.env.PING_POLL_MS||'10000',10), state, target:process.env.PING_TARGET||'1.1.1.1'});
 const wanIps       = new WanIpsCollector({ ros, io, pollMs: 30000, state, wanIface: DEFAULT_IF });
 const neighbors    = new NeighborsCollector({ ros, io, pollMs: 60000, state });
-
+const switches = new SwitchesCollector({ io, pollMs: 10000, dhcpLeases, arp, dhcpNetworks, state });
 
 app.get('/api/localcc', (_req, res) => {
   let geoip = null;
@@ -233,6 +235,7 @@ ros.connectLoop();
     ping.start();
     wanIps.start();
     neighbors.start();
+    switches.start();
 
     console.log('[ROS-Dash] All collectors running');
   } catch (e) {

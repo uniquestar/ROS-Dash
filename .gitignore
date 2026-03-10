@@ -8,3 +8,4 @@ node_modules/
 # Mac junk
 .DS_Store
 
+switches.json
