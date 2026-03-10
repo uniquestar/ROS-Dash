@@ -19,8 +19,9 @@ const SystemCollector      = require('./collectors/system');
 const VpnCollector         = require('./collectors/vpn');
 const FirewallCollector    = require('./collectors/firewall');
 const InterfaceStatusCollector = require('./collectors/interfaceStatus');
-const PingCollector         = require('./collectors/ping');
-const WanIpsCollector = require('./collectors/wanips');
+const PingCollector        = require('./collectors/ping');
+const WanIpsCollector      = require('./collectors/wanips');
+const NeighborsCollector   = require('./collectors/neighbors');
 
 const app = express();
 
@@ -134,6 +135,7 @@ const state = {
   lastFirewallTs:0, lastFirewallErr:null,
   lastIfStatusTs:0,
   lastPingTs:0,
+  lastNeighborsTs: 0,
 };
 
 const ros = new ROS({
@@ -164,7 +166,8 @@ const vpn          = new VpnCollector         ({ros,io, pollMs:parseInt(process.
 const firewall     = new FirewallCollector    ({ros,io, pollMs:parseInt(process.env.FIREWALL_POLL_MS ||'10000',10), state, topN:parseInt(process.env.FIREWALL_TOP_N||'15',10)});
 const ifStatus     = new InterfaceStatusCollector({ros,io, pollMs:parseInt(process.env.IFSTATUS_POLL_MS||'5000',10), state});
 const ping         = new PingCollector({ros,io, pollMs:parseInt(process.env.PING_POLL_MS||'10000',10), state, target:process.env.PING_TARGET||'1.1.1.1'});
-const wanIps = new WanIpsCollector({ ros, io, pollMs: 30000, state, wanIface: DEFAULT_IF });
+const wanIps       = new WanIpsCollector({ ros, io, pollMs: 30000, state, wanIface: DEFAULT_IF });
+const neighbors    = new NeighborsCollector({ ros, io, pollMs: 60000, state });
 
 
 app.get('/api/localcc', (_req, res) => {
@@ -229,6 +232,7 @@ ros.connectLoop();
     ifStatus.start();
     ping.start();
     wanIps.start();
+    neighbors.start();
 
     console.log('[ROS-Dash] All collectors running');
   } catch (e) {
