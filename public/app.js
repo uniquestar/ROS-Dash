@@ -392,12 +392,12 @@ socket.on('ifstatus:update',function(data){
   ifaceGrid.innerHTML=ifaces.map(function(i){
     var cls=i.disabled?'disabled':i.running?'up':'down';
     var dotCls=i.disabled?'dis':i.running?'up':'down';
-    var ipStr=i.ips&&i.ips.length?i.ips[0]:'';
+    var ipStr=i.ips&&i.ips.length?i.ips.join(' / '):'';
     var rateStr=(i.rxMbps||i.txMbps)?'\u2193 '+i.rxMbps+' \u2191 '+i.txMbps+' Mbps':'';
     return'<div class="iface-tile '+cls+'">'+
       '<div class="iface-name"><span class="iface-dot '+dotCls+'"></span>'+esc(i.name)+'</div>'+
       '<div class="iface-type">'+esc(i.type)+(i.comment?' \u00b7 '+esc(i.comment):'')+'</div>'+
-      (ipStr?'<div class="iface-ip">'+esc(ipStr)+'</div>':'')+
+      (i.ips&&i.ips.length?i.ips.map(function(ip){return'<div class="iface-ip">'+esc(ip)+'</div>';}).join(''):'')+
       (rateStr?'<div class="iface-rate">'+rateStr+'</div>':'')+
       '</div>';
   }).join('');
