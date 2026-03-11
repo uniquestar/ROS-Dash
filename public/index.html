@@ -420,6 +420,10 @@
       <span class="nav-badge" id="switchesNavBadge">0</span>
     </a>
 
+    <a class="nav-item" data-page="routes" href="#">
+      <span class="nav-icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
+      <span class="nav-label">Routes</span>
+    </a>
     <a class="nav-item" data-page="logs" href="#">
       <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
       <span class="nav-label">Logs</span>
@@ -659,6 +663,22 @@
             </div>
           </div>
           </div>
+          <div data-card-id="routesCard">
+          <div class="card" id="routesCard">
+            <div class="stale-overlay">&#9679; stale</div>
+            <div class="card-header d-flex align-items-center gap-2">
+              <h3 class="card-title">Routes</h3>
+            </div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table table-vcenter mb-0" style="font-size:.78rem">
+                  <thead><tr><th>Destination</th><th>Gateway</th><th>Type</th></tr></thead>
+                  <tbody id="routesTable"><tr><td colspan="3" class="empty-state">Waiting…</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          </div>
           <div data-card-id="vpnCard">
           <div class="card" id="vpnCard">
             <div class="stale-overlay">&#9679; stale</div>
@@ -850,6 +870,40 @@
   </div>
 
 
+<!-- ROUTES -->
+  <div class="page-view" id="page-routes">
+    <div class="container-fluid px-0" style="max-width:1400px;margin:0 auto">
+      <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+          <h3 class="card-title">Routes</h3>
+          <div class="d-flex align-items-center gap-2">
+            <input id="routesSearch" type="text" class="form-control form-control-sm" placeholder="Filter by destination, gateway…" style="width:240px">
+            <span id="routesTotalBadge" class="badge bg-blue" style="font-family:var(--font-mono);font-size:.68rem">0</span>
+          </div>
+        </div>
+        <div style="padding:.5rem 1rem;border-bottom:1px solid var(--border);font-size:.72rem;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:.75rem">
+          <span><code style="font-size:.72rem">A</code> Active</span>
+          <span><code style="font-size:.72rem">D</code> Dynamic</span>
+          <span><code style="font-size:.72rem">s</code> Static</span>
+          <span><code style="font-size:.72rem">c</code> Connected</span>
+          <span><code style="font-size:.72rem">+</code> ECMP</span>
+        </div>
+        <div class="card-body p-0">
+          <div class="data-scroll" style="max-height:calc(100vh - 200px);overflow-y:auto">
+            <table class="table table-vcenter mb-0" style="table-layout:fixed;width:100%">
+              <colgroup><col style="width:8%"><col style="width:22%"><col style="width:22%"><col style="width:8%"><col style="width:25%"><col style="width:15%"></colgroup>
+              <thead style="position:sticky;top:0;background:var(--bg-card)">
+                <tr><th>Flags</th><th>Destination</th><th>Gateway</th><th>Dist</th><th>Comment</th><th>Type</th></tr>
+              </thead>
+              <tbody id="routesPageTable"><tr><td colspan="6" class="empty-state">Waiting for route data…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  
   <!-- LOGS -->
   <div class="page-view" id="page-logs">
     <div class="container-fluid px-0" style="max-width:1400px;margin:0 auto">

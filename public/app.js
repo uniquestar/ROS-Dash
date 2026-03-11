@@ -324,6 +324,68 @@ socket.on('neighbors:update',function(data){
   }).join('');
 });
 
+socket.on('routes:update', function(data){
+  var tbody = $('routesTable');
+  var pageBody = $('routesPageTable');
+  var badge = $('routesTotalBadge');
+  var routes = data.routes || [];
+  window._allRoutes = routes;
+
+  // Dashboard card
+  if (tbody) {
+    if (!routes.length) {
+      tbody.innerHTML = '<tr><td colspan="3" class="empty-state">No routes</td></tr>';
+    } else {
+      tbody.innerHTML = routes.map(function(r){
+        var isStatic = r.type === 'static';
+        var dstColor = isStatic ? 'color:var(--text-main);font-weight:600' : 'color:var(--text-muted)';
+        var typePill = isStatic
+          ? '<span style="font-size:.65rem;padding:.1rem .35rem;border-radius:3px;background:rgba(245,158,11,.15);color:#f59e0b">static</span>'
+          : '<span style="font-size:.65rem;padding:.1rem .35rem;border-radius:3px;background:rgba(99,130,190,.15);color:var(--text-muted)">connected</span>';
+        return '<tr>'+
+          '<td style="font-family:var(--font-mono);font-size:.75rem;'+dstColor+'">'+esc(r.dst)+'</td>'+
+          '<td style="font-size:.75rem;color:var(--text-muted)">'+esc(r.gateway)+'</td>'+
+          '<td>'+typePill+'</td>'+
+          '</tr>';
+      }).join('');
+    }
+  }
+
+  // Routes page
+  renderRoutesPage(routes, (document.getElementById('routesSearch')||{value:''}).value);
+});
+
+function renderRoutesPage(routes, filter){
+  var pageBody = $('routesPageTable');
+  var badge    = $('routesTotalBadge');
+  if (!pageBody) return;
+  var filtered = filter
+    ? routes.filter(function(r){
+        var hay = (r.dst+' '+r.gateway+' '+r.comment+' '+r.type+' '+r.flags).toLowerCase();
+        return hay.indexOf(filter.toLowerCase()) !== -1;
+      })
+    : routes;
+  if (badge) badge.textContent = filtered.length;
+  if (!filtered.length) {
+    pageBody.innerHTML = '<tr><td colspan="6" class="empty-state">No routes'+(filter?' matching filter':'')+'\u2026</td></tr>';
+    return;
+  }
+  pageBody.innerHTML = filtered.map(function(r){
+    var isStatic = r.type === 'static';
+    var typePill = isStatic
+      ? '<span style="font-size:.65rem;padding:.1rem .35rem;border-radius:3px;background:rgba(245,158,11,.15);color:#f59e0b">static</span>'
+      : '<span style="font-size:.65rem;padding:.1rem .35rem;border-radius:3px;background:rgba(99,130,190,.15);color:var(--text-muted)">connected</span>';
+    return '<tr>'+
+      '<td style="font-family:var(--font-mono);font-size:.72rem;color:var(--text-muted)">'+esc(r.flags||'')+'</td>'+
+      '<td style="font-family:var(--font-mono);font-size:.75rem;'+(isStatic?'font-weight:600':'color:var(--text-muted)')+'">'+esc(r.dst)+'</td>'+
+      '<td style="font-size:.75rem;color:var(--text-muted)">'+esc(r.gateway)+'</td>'+
+      '<td style="font-family:var(--font-mono);font-size:.75rem;text-align:center">'+esc(String(r.distance))+'</td>'+
+      '<td style="font-size:.72rem;color:var(--text-muted);font-style:'+(r.comment?'normal':'italic')+'">'+esc(r.comment||'—')+'</td>'+
+      '<td>'+typePill+'</td>'+
+      '</tr>';
+  }).join('');
+}
+
 // ── Switches ───────────────────────────────────────────────────────────────
 (function(){
   var allPorts = [];
@@ -335,6 +397,14 @@ socket.on('neighbors:update',function(data){
       renderSwitches(allPorts);
     });
   }
+
+  // Routes search
+(function(){
+  var s = $('routesSearch');
+  if (s) s.addEventListener('input', function(){
+    renderRoutesPage(window._allRoutes || [], this.value);
+  });
+})();
 
   function renderSwitches(ports) {
     var tbody  = $('switchesTable');
@@ -702,12 +772,14 @@ var staleConfig=[
   {cardId:'trafficCard',  event:'traffic:update',  threshold:10000},
   {cardId:'systemCard',   event:'system:update',   threshold:15000},
   {cardId:'connCard',     event:'conn:update',      threshold:20000},
-{cardId:'neighborsCard',  event:'neighbors:update',  threshold:120000},
+  {cardId:'neighborsCard',  event:'neighbors:update',  threshold:120000},
+  {cardId:'routesCard',     event:'routes:update',     threshold:60000},
   {cardId:'wirelessCard', event:'wireless:update', threshold:60000},
   {cardId:'vpnCard',      event:'vpn:update',       threshold:30000},
   {cardId:'firewallCard', event:'firewall:update', threshold:30000},
   {cardId:'ifStatusCard', event:'ifstatus:update', threshold:20000},
   {cardId:'networksCard',  event:'lan:overview',    threshold:60000},
+
 ];
 var staleTimers={};
 staleConfig.forEach(function(cfg){
