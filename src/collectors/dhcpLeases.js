@@ -75,6 +75,12 @@ class DhcpLeasesCollector {
   async start() {
     await this._loadInitial();
     this._startStream();
+    // Periodic full reload to catch deleted leases (every 5 minutes)
+    this._reloadTimer = setInterval(async () => {
+      this.byIP.clear();
+      this.byMAC.clear();
+      await this._loadInitial();
+    }, 5 * 60 * 1000);
     this.ros.on('connected', async () => {
       this._stopStream();
       await this._loadInitial();
@@ -83,5 +89,4 @@ class DhcpLeasesCollector {
     this.ros.on('close', () => this._stopStream());
   }
 }
-
 module.exports = DhcpLeasesCollector;
