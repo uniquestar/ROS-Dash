@@ -331,6 +331,9 @@ socket.on('routes:update', function(data){
   var routes = data.routes || [];
   window._allRoutes = routes;
 
+  var nb = $('routesNavBadge');
+  if (nb) nb.textContent = routes.length || '';
+
   // Dashboard card
   if (tbody) {
     if (!routes.length) {
