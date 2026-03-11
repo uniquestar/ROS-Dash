@@ -409,6 +409,62 @@ function renderRoutesPage(routes, filter){
   });
 })();
 
+// ── Address Lists ─────────────────────────────────────────────────────────
+(function(){
+  var _allLists = [];
+
+  function renderAddressLists(lists, filter) {
+    var content = $('addressListsContent');
+    if (!content) return;
+    var f = (filter || '').toLowerCase();
+
+    var filtered = lists.map(function(l){
+      var entries = f ? l.entries.filter(function(e){
+        return (l.name+' '+e.address+' '+e.comment).toLowerCase().indexOf(f) !== -1;
+      }) : l.entries;
+      return { name: l.name, entries: entries };
+    }).filter(function(l){ return l.entries.length > 0; });
+
+    if (!filtered.length) {
+      content.innerHTML = '<div class="empty-state">No address lists'+(f?' matching filter':'')+'\u2026</div>';
+      return;
+    }
+
+    content.innerHTML = filtered.map(function(l){
+      var rows = l.entries.map(function(e){
+        return '<tr>'+
+          '<td style="font-family:var(--font-mono);font-size:.75rem;color:var(--accent-rx)">'+esc(e.address)+'</td>'+
+          '<td style="font-size:.75rem;color:var(--text-muted)">'+esc(e.comment||'—')+'</td>'+
+          '<td style="font-size:.68rem;color:var(--text-muted)">'+esc(e.created||'')+'</td>'+
+          '</tr>';
+      }).join('');
+
+      return '<div style="margin-bottom:1.5rem">'+
+        '<div style="padding:.5rem 1rem;background:var(--bg-card);border-bottom:1px solid var(--border);font-weight:600;font-size:.85rem;position:sticky;top:0;z-index:1">'+
+          esc(l.name)+
+          '<span style="font-size:.72rem;font-weight:400;color:var(--text-muted);margin-left:.5rem">'+l.entries.length+' entries</span>'+
+        '</div>'+
+        '<table class="table table-vcenter mb-0" style="font-size:.78rem">'+
+          '<thead><tr><th style="width:30%">Address</th><th style="width:45%">Comment</th><th style="width:25%">Created</th></tr></thead>'+
+          '<tbody>'+rows+'</tbody>'+
+        '</table>'+
+      '</div>';
+    }).join('');
+  }
+
+  socket.on('addresslists:update', function(data){
+    _allLists = data.lists || [];
+    renderAddressLists(_allLists, ($('addressListsSearch')||{value:''}).value);
+    var nb = $('addressListsNavBadge');
+    if (nb) nb.textContent = _allLists.length || '';
+  });
+
+  var s = $('addressListsSearch');
+  if (s) s.addEventListener('input', function(){
+    renderAddressLists(_allLists, this.value);
+  });
+})();
+
   function renderSwitches(ports) {
     var tbody  = $('switchesTable');
     var badge  = $('switchesTotalBadge');

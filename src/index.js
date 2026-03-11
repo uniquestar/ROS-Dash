@@ -24,6 +24,7 @@ const WanIpsCollector      = require('./collectors/wanips');
 const NeighborsCollector   = require('./collectors/neighbors');
 const SwitchesCollector    = require('./collectors/switches');
 const RoutesCollector      = require('./collectors/routes');
+const AddressListsCollector = require('./collectors/addressLists');
 
 const app = express();
 
@@ -140,6 +141,7 @@ const state = {
   lastNeighborsTs: 0,
   lastSwitchesTs:  0,
   lastRoutesTs: 0,
+  lastAddressListsTs: 0,
 };
 
 const ros = new ROS({
@@ -174,6 +176,7 @@ const wanIps       = new WanIpsCollector({ ros, io, pollMs: 30000, state, wanIfa
 const neighbors    = new NeighborsCollector({ ros, io, pollMs: 60000, state });
 const switches     = new SwitchesCollector({ io, pollMs: 10000, dhcpLeases, arp, dhcpNetworks, state });
 const routes       = new RoutesCollector({ ros, io, pollMs: 30000, state });
+const addressLists = new AddressListsCollector({ ros, io, pollMs: 60000, state });
 
 app.get('/api/localcc', (_req, res) => {
   let geoip = null;
@@ -240,6 +243,7 @@ ros.connectLoop();
     neighbors.start();
     switches.start();
     routes.start();
+    addressLists.start();
 
     console.log('[ROS-Dash] All collectors running');
   } catch (e) {
