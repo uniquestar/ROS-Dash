@@ -52,6 +52,17 @@ const authedUser = validateUser(username, password);
   }
 });
 
+// Switch port data for visualiser
+app.get('/api/switches/list', requireAuth, requirePageRead('switches'), (req, res) => {
+  res.json(switches.getSwitchList());
+});
+
+app.get('/api/switches/:name/ports', requireAuth, requirePageRead('switches'), (req, res) => {
+  const data = switches.getPortData(req.params.name);
+  if (!data) return res.status(404).json({ error: 'Switch not found or not yet polled' });
+  res.json(data);
+});
+
 // Current user info
 app.get('/api/me', requireAuth, (req, res) => {
   const user = getTokenUser(req);

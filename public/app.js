@@ -1994,3 +1994,284 @@ sendNotif = function(title, body, tag){
   };
 
 })();
+
+// ── Switch Visualiser ─────────────────────────────────────────────────────
+(function(){
+  var _swData    = {};   // cache: switchName -> port array
+  var _swList    = [];   // [{name, modules}]
+  var _selSwitch = '';
+  var _selModule = 1;
+
+  // Tab switching
+  document.querySelectorAll('.sw-tab-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.querySelectorAll('.sw-tab-btn').forEach(function(b){
+        b.style.borderBottomColor = 'transparent';
+        b.style.color = 'var(--text-muted)';
+        b.classList.remove('active');
+      });
+      btn.style.borderBottomColor = 'var(--accent-rx)';
+      btn.style.color = 'var(--text-main)';
+      btn.classList.add('active');
+      var tab = btn.dataset.tab;
+      document.querySelectorAll('.sw-tab-content').forEach(function(c){ c.style.display='none'; });
+      var el = $('sw-tab-'+tab);
+      if (el) el.style.display = '';
+      if (tab === 'visualiser') { if (!_swList.length) loadSwitchList(); }
+    });
+  });
+
+  function loadSwitchList() {
+    fetch('/api/switches/list', { credentials: 'include' })
+      .then(function(r){ return r.json(); })
+      .then(function(list){
+        _swList = list;
+        var sel = $('swVisSelect');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">— Select switch —</option>' +
+          list.map(function(sw){
+            return '<option value="'+esc(sw.name)+'">'+esc(sw.name)+'</option>';
+          }).join('');
+      }).catch(function(){ console.error('Failed to load switch list'); });
+  }
+
+function loadSwitchPorts(name) {
+    var diag = $('swVisDiagram');
+    if (diag) diag.innerHTML = '<div class="empty-state">Loading port data…</div>';
+    fetch('/api/switches/'+encodeURIComponent(name)+'/ports', { credentials: 'include' })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        _swData[name] = data.ports;
+        var ts = $('swVisLastUpdate');
+        if (ts) ts.textContent = 'Updated ' + new Date(data.ts).toLocaleTimeString();
+
+        // Update module selector from actual port data
+        var modules = [...new Set(data.ports.map(function(p){ return p.module; }))].sort(function(a,b){return a-b;});
+        var modSel = $('swVisModule');
+        if (modSel) {
+          if (modules.length > 1) {
+            modSel.innerHTML = modules.map(function(m){
+              return '<option value="'+m+'">Switch '+m+'</option>';
+            }).join('');
+            modSel.style.display = '';
+          } else {
+            modSel.style.display = 'none';
+          }
+        }
+        _selModule = modules[0] || 1;
+        renderVisualiser(name, _selModule);
+      }).catch(function(){
+        var diag = $('swVisDiagram');
+        if (diag) diag.innerHTML = '<div class="empty-state">Failed to load port data</div>';
+      });
+  }
+
+function renderVisualiser(switchName, module) {
+    var diag = $('swVisDiagram');
+    if (!diag) return;
+    var allData = _swData[switchName] || [];
+    var modules = [...new Set(allData.map(function(p){ return p.module; }))].sort(function(a,b){return a-b;});
+    if (!modules.length) {
+      diag.innerHTML = '<div class="empty-state">No port data for this switch</div>';
+      return;
+    }
+
+    function portColor(p) {
+      if (!p) return 'var(--bg-main)';
+      if (p.isUplink && p.status === 'up') return 'rgba(168,85,247,.2)';
+      if (p.isUplink) return 'rgba(255,255,255,.05)';
+      if (p.status === 'up' && p.poeStatus === 'delivering') return 'rgba(34,197,94,.25)';
+      if (p.status === 'up') return 'rgba(56,189,248,.2)';
+      return 'rgba(255,255,255,.05)';
+    }
+
+    function portBorder(p) {
+      if (!p) return '1px solid var(--border)';
+      if (p.isUplink && p.status === 'up') return '1px solid rgba(168,85,247,.5)';
+      if (p.isUplink) return '1px solid var(--border)';
+      if (p.status === 'up' && p.poeStatus === 'delivering') return '1px solid rgba(34,197,94,.6)';
+      if (p.status === 'up') return '1px solid rgba(56,189,248,.5)';
+      return '1px solid var(--border)';
+    }
+
+    function portLabel(p) {
+      if (!p) return '';
+      return String(p.port).padStart(2,'0');
+    }
+
+    function portTitle(p) {
+      if (!p) return '';
+      var lines = ['Port: '+p.ifName, 'Status: '+p.status];
+      if (p.isUplink) { lines.push('Uplink port'); return lines.join('\n'); }
+      if (p.poeStatus === 'delivering') {
+        lines.push('PoE: delivering');
+        if (p.poeDescr) lines.push('Device: '+p.poeDescr);
+      }
+      if (p.macs && p.macs.length) {
+        p.macs.forEach(function(m){
+          lines.push('MAC: '+m.mac);
+          if (m.name) lines.push('Host: '+m.name);
+          if (m.ip)   lines.push('IP: '+m.ip);
+          lines.push('VLAN: '+m.vlan);
+        });
+      }
+      return lines.join('\n');
+    }
+
+    function renderModule(ports) {
+      var portMap = {};
+      ports.forEach(function(p){ portMap[p.port] = p; });
+      var maxPort = Math.max.apply(null, ports.map(function(p){ return p.port; }));
+      if (maxPort % 2 !== 0) maxPort++;
+      var pairs = [];
+      for (var i = 1; i <= maxPort; i += 2) {
+        pairs.push({ top: portMap[i] || null, bottom: portMap[i+1] || null });
+      }
+      return pairs.map(function(pair){
+        var topP = pair.top;
+        var botP = pair.bottom;
+        var topHTML = topP
+          ? '<div data-port="'+topP.ifName+'" style="'+
+              'width:36px;height:28px;border-radius:3px 3px 0 0;'+
+              'background:'+portColor(topP)+';'+
+              'border:'+portBorder(topP)+';border-bottom:none;'+
+              'display:flex;align-items:center;justify-content:center;'+
+              'font-size:.6rem;font-family:var(--font-mono);color:var(--text-muted);'+
+              'cursor:pointer;position:relative" title="'+esc(portTitle(topP))+'">'+
+              portLabel(topP)+
+              (topP.poeStatus==='delivering' ? '<div style="position:absolute;bottom:2px;right:2px;width:5px;height:5px;border-radius:50%;background:#22c55e"></div>' : '')+
+            '</div>'
+          : '<div style="width:36px;height:28px"></div>';
+        var botHTML = botP
+          ? '<div data-port="'+botP.ifName+'" style="'+
+              'width:36px;height:28px;border-radius:0 0 3px 3px;'+
+              'background:'+portColor(botP)+';'+
+              'border:'+portBorder(botP)+';border-top:none;'+
+              'display:flex;align-items:center;justify-content:center;'+
+              'font-size:.6rem;font-family:var(--font-mono);color:var(--text-muted);'+
+              'cursor:pointer;position:relative" title="'+esc(portTitle(botP))+'">'+
+              portLabel(botP)+
+              (botP.poeStatus==='delivering' ? '<div style="position:absolute;bottom:2px;right:2px;width:5px;height:5px;border-radius:50%;background:#22c55e"></div>' : '')+
+            '</div>'
+          : '<div style="width:36px;height:28px"></div>';
+        return '<div style="display:flex;flex-direction:column;margin-right:3px">'+topHTML+botHTML+'</div>';
+      }).join('');
+    }
+
+    var legend = '<div style="display:flex;gap:1rem;margin-top:1rem;font-size:.72rem;color:var(--text-muted);flex-wrap:wrap">'+
+      '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.5);margin-right:4px"></span>Uplink</span>'+
+      '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(56,189,248,.2);border:1px solid rgba(56,189,248,.5);margin-right:4px"></span>Up</span>'+
+      '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(34,197,94,.25);border:1px solid rgba(34,197,94,.6);margin-right:4px"></span>Up + PoE</span>'+
+      '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(255,255,255,.05);border:1px solid var(--border);margin-right:4px"></span>Down</span>'+
+      '<span><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#22c55e;margin-right:4px;vertical-align:middle"></span>PoE active</span>'+
+    '</div>';
+
+    // Build one card per module
+    var html = modules.map(function(mod){
+      var ports = allData.filter(function(p){ return p.module === mod; });
+      return '<div class="card mb-3">'+
+        '<div class="card-header" style="font-size:.8rem;font-weight:600;color:var(--text-muted)">Switch '+mod+'</div>'+
+        '<div class="card-body" style="overflow-x:auto">'+
+          '<div style="display:flex;flex-wrap:nowrap;align-items:flex-start;padding:.5rem 0;min-width:min-content">'+
+            renderModule(ports)+
+          '</div>'+
+        '</div>'+
+      '</div>';
+    }).join('') + '<div class="card"><div class="card-body">'+legend+'</div></div>';
+
+    diag.innerHTML = html;
+
+    // Wire up click handlers
+    diag.querySelectorAll('[data-port]').forEach(function(el){
+      el.addEventListener('click', function(){
+        var ifName = el.dataset.port;
+        var p = allData.find(function(x){ return x.ifName === ifName; });
+        if (p) showPortModal(p);
+      });
+    });
+  }
+
+  function showPortModal(p) {
+    var modal = $('swPortModal');
+    var title = $('swPortModalTitle');
+    var body  = $('swPortModalBody');
+    if (!modal || !title || !body) return;
+
+    title.textContent = p.ifName;
+
+    if (p.isUplink) {
+      body.innerHTML = '<div style="color:var(--text-muted);font-size:.85rem">This is an uplink port connecting to the upstream router or switch.</div>';
+      modal.style.display = 'flex';
+      return;
+    }
+
+    var statusColor = p.status === 'up' ? '#22c55e' : '#6b7280';
+    var poeColor    = p.poeStatus === 'delivering' ? '#22c55e' : 'var(--text-muted)';
+
+    var devRows = '';
+    if (p.macs && p.macs.length) {
+      devRows = p.macs.map(function(m){
+        return '<tr>'+
+          '<td style="font-family:var(--font-mono);font-size:.75rem">'+esc(m.mac)+'</td>'+
+          '<td style="font-size:.75rem">'+esc(m.name||'—')+'</td>'+
+          '<td style="font-family:var(--font-mono);font-size:.75rem">'+esc(m.ip||'—')+'</td>'+
+          '<td style="font-size:.75rem">'+esc(String(m.vlan))+'</td>'+
+        '</tr>';
+      }).join('');
+    }
+
+    body.innerHTML =
+      '<table style="width:100%;font-size:.82rem;margin-bottom:1rem">'+
+        '<tr><td style="color:var(--text-muted);width:40%">Status</td>'+
+            '<td><span style="color:'+statusColor+';font-weight:600">'+p.status.toUpperCase()+'</span></td></tr>'+
+        '<tr><td style="color:var(--text-muted)">PoE</td>'+
+            '<td><span style="color:'+poeColor+'">'+p.poeStatus+'</span></td></tr>'+
+        (p.poeDescr ? '<tr><td style="color:var(--text-muted)">Device Type</td><td>'+esc(p.poeDescr)+'</td></tr>' : '')+
+      '</table>'+
+      (devRows
+        ? '<div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.4rem">CONNECTED DEVICES</div>'+
+          '<div style="overflow-x:auto"><table class="table table-vcenter mb-0" style="font-size:.78rem">'+
+            '<thead><tr><th>MAC</th><th>Hostname</th><th>IP</th><th>VLAN</th></tr></thead>'+
+            '<tbody>'+devRows+'</tbody>'+
+          '</table></div>'
+        : '<div style="color:var(--text-muted);font-size:.8rem;font-style:italic">No devices detected on this port</div>'
+      );
+
+    modal.style.display = 'flex';
+  }
+
+  // Modal close
+  var closeBtn = $('swPortModalClose');
+  if (closeBtn) closeBtn.addEventListener('click', function(){ $('swPortModal').style.display='none'; });
+  document.addEventListener('click', function(e){
+    if (e.target === $('swPortModal')) $('swPortModal').style.display='none';
+  });
+
+// Switch selector
+  var swSel = $('swVisSelect');
+  if (swSel) swSel.addEventListener('change', function(){
+    _selSwitch = this.value;
+    if (!_selSwitch) {
+      var diag = $('swVisDiagram');
+      if (diag) diag.innerHTML = '<div class="empty-state">Select a switch to view port layout</div>';
+      return;
+    }
+    loadSwitchPorts(_selSwitch);
+  });
+
+// Auto-refresh visualiser every 120 seconds
+  setInterval(function(){
+    if (_selSwitch) loadSwitchPorts(_selSwitch);
+  }, 120000);
+
+  // Load switch list on startup so visualiser is ready
+  loadSwitchList();
+
+  // Module selector
+  var modSel = $('swVisModule');
+  if (modSel) modSel.addEventListener('change', function(){
+    _selModule = parseInt(this.value) || 1;
+    if (_selSwitch) renderVisualiser(_selSwitch, _selModule);
+  });
+
+})();
