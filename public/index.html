@@ -964,17 +964,20 @@
       </div>
     </div>
   </div>
-   <div class="page-view" id="page-users">
-  <div class="card">
-    <div class="card-header d-flex align-items-center justify-content-between">
-      <h3 class="card-title mb-0">User Management</h3>
-      <button id="showAddUser" style="background:#4f6ef7;color:#fff;border:none;border-radius:6px;padding:.4rem .9rem;font-size:.85rem;cursor:pointer">+ Add User</button>
-    </div>
-    <div class="card-body p-0">
 
-      <!-- Add user form (hidden by default) -->
-      <div id="addUserForm" style="display:none;padding:1rem;border-bottom:1px solid var(--border)">
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:.75rem;align-items:end">
+
+<!-- USERS -->
+<div class="page-view" id="page-users">
+  <div class="container-fluid px-0" style="max-width:1400px;margin:0 auto">
+
+    <!-- Add user form -->
+    <div class="card mb-3">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h3 class="card-title mb-0">User Management</h3>
+        <button id="showAddUser" style="background:#4f6ef7;color:#fff;border:none;border-radius:6px;padding:.4rem .9rem;font-size:.85rem;cursor:pointer">+ Add User</button>
+      </div>
+      <div id="addUserForm" style="display:none;padding:1rem;border-top:1px solid var(--border)">
+        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:.75rem;align-items:end">
           <div>
             <label style="display:block;font-size:.75rem;color:var(--text-muted);margin-bottom:.3rem">USERNAME</label>
             <input id="newUsername" type="text" style="width:100%;padding:.45rem .7rem;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-main);font-size:.85rem">
@@ -983,35 +986,15 @@
             <label style="display:block;font-size:.75rem;color:var(--text-muted);margin-bottom:.3rem">PASSWORD</label>
             <input id="newPassword" type="password" style="width:100%;padding:.45rem .7rem;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-main);font-size:.85rem">
           </div>
-          <div>
-            <label style="display:block;font-size:.75rem;color:var(--text-muted);margin-bottom:.3rem">ROLE</label>
-            <select id="newRole" style="width:100%;padding:.45rem .7rem;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-main);font-size:.85rem">
-              <option value="viewer">Viewer</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
           <button id="submitAddUser" style="background:#4f6ef7;color:#fff;border:none;border-radius:6px;padding:.45rem .9rem;font-size:.85rem;cursor:pointer;white-space:nowrap">Add User</button>
         </div>
         <div id="addUserError" style="display:none;margin-top:.5rem;color:#f87171;font-size:.8rem"></div>
       </div>
-
-      <!-- Users table -->
-      <div class="table-responsive">
-        <table class="table table-vcenter mb-0">
-          <thead>
-            <tr>
-              <th>Username</th>
-              <th>Role</th>
-              <th>Created</th>
-              <th class="text-end">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="usersTable">
-            <tr><td colspan="4" class="empty-state">Loading...</td></tr>
-          </tbody>
-        </table>
-      </div>
     </div>
+
+    <!-- Users and permissions -->
+    <div id="usersPermissionsContainer"></div>
+
   </div>
 
   <!-- Change password modal -->

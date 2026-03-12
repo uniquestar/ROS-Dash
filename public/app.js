@@ -1786,60 +1786,159 @@ sendNotif = function(title, body, tag){
 
 // ── User Management ─────────────────────────────────────────────────────────
 (function(){
-  var currentUser = null;
+  // ── Permission bootstrap ─────────────────────────────────────────────────
+  fetch('/api/me', { credentials: 'include' })
+    .then(function(r){ return r.json(); })
+    .then(function(me){
+      window._currentUser = me;
+      var perms = me.permissions || {};
 
-  // Fetch current user role from token
-  fetch('/api/users', { credentials: 'include' })
-.then(function(r){ 
-    if (r.ok) {
-      document.querySelectorAll('.admin-only').forEach(function(el){ el.style.display='flex'; });
-    } else {
-      // Viewer — redirect away from admin pages if currently on one
-      if(window.location.hash === '#firewall') showPage('dashboard');
-    }
-  }).catch(function(){});
-
-  window.loadUsers = function() {
-    fetch('/api/users', { credentials: 'include' })
-      .then(function(r){ return r.json(); })
-      .then(function(users) {
-        var tbody = $('usersTable');
-        if (!tbody) return;
-        if (!users.length) {
-          tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No users found</td></tr>';
-          return;
-        }
-        tbody.innerHTML = users.map(function(u) {
-          var created = u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—';
-          var roleBadge = u.role === 'admin'
-            ? '<span style="color:#f59e0b;font-size:.75rem;font-weight:600">ADMIN</span>'
-            : '<span style="color:var(--text-muted);font-size:.75rem">VIEWER</span>';
-          var toggleRole = u.role === 'admin'
-            ? '<button onclick="window._setRole(\''+u.username+'\',\'viewer\')" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Make Viewer</button>'
-            : '<button onclick="window._setRole(\''+u.username+'\',\'admin\')" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Make Admin</button>';
-          return '<tr>'+
-            '<td style="font-family:var(--font-mono)">'+u.username+'</td>'+
-            '<td>'+roleBadge+'</td>'+
-            '<td style="color:var(--text-muted);font-size:.8rem">'+created+'</td>'+
-            '<td class="text-end" style="display:flex;gap:.4rem;justify-content:flex-end;align-items:center">'+
-              toggleRole+
-              '<button onclick="window._chgPwd(\''+u.username+'\')" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Password</button>'+
-              '<button onclick="window._delUser(\''+u.username+'\')" style="background:transparent;border:1px solid rgba(248,113,113,.3);color:#f87171;border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Delete</button>'+
-            '</td>'+
-          '</tr>';
-        }).join('');
-      }).catch(function(){ 
-        var tbody = $('usersTable');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Failed to load users</td></tr>';
+      // Show/hide nav items based on read permissions
+      var navMap = {
+        'interfaces':   'data-page="interfaces"',
+        'dhcp':         'data-page="dhcp"',
+        'vpn':          'data-page="vpn"',
+        'connections':  'data-page="connections"',
+        'switches':     'data-page="switches"',
+        'routes':       'data-page="routes"',
+        'addresslists': 'data-page="addresslists"',
+        'firewall':     'data-page="firewall"',
+        'logs':         'data-page="logs"',
+        'users':        'data-page="users"',
+      };
+      Object.keys(navMap).forEach(function(key){
+        var el = document.querySelector('.nav-item['+navMap[key]+']');
+        if (!el) return;
+        el.style.display = (perms[key] && perms[key].read) ? '' : 'none';
       });
+
+      // Redirect away from pages user can't read
+      var currentPage = window.location.hash.replace('#','') || 'dashboard';
+      if (currentPage !== 'dashboard' && currentPage !== 'about') {
+        if (!perms[currentPage] || !perms[currentPage].read) showPage('dashboard');
+      }
+    }).catch(function(){});
+
+  // ── Users page ───────────────────────────────────────────────────────────
+  var _pages = [];
+  var _users = [];
+
+  function canWrite() {
+    var me = window._currentUser;
+    return me && me.permissions && me.permissions.users && me.permissions.users.write;
   }
 
+  window.loadUsers = function() {
+    Promise.all([
+      fetch('/api/users', { credentials: 'include' }).then(function(r){ return r.json(); }),
+      fetch('/api/pages', { credentials: 'include' }).then(function(r){ return r.json(); }),
+    ]).then(function(results){
+      _users = results[0];
+      _pages = results[1];
+      renderUsersPage();
+    }).catch(function(){
+      var c = $('usersPermissionsContainer');
+      if (c) c.innerHTML = '<div class="empty-state">Failed to load users</div>';
+    });
+  };
+
+  function renderUsersPage() {
+    var container = $('usersPermissionsContainer');
+    if (!container) return;
+    if (!_users.length) {
+      container.innerHTML = '<div class="card"><div class="card-body empty-state">No users found</div></div>';
+      return;
+    }
+
+    container.innerHTML = _users.map(function(u){
+      var created = u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—';
+      var perms   = u.permissions || {};
+      var write   = canWrite();
+
+      // Permission grid rows
+      var permRows = _pages.map(function(p){
+        var perm     = perms[p.key] || { read: false, write: false };
+        var readChk  = '<label style="display:flex;align-items:center;gap:.3rem;cursor:'+(write?'pointer':'default')+';font-size:.75rem">'+
+          '<input type="checkbox" data-user="'+esc(u.username)+'" data-page="'+esc(p.key)+'" data-type="read" '+(perm.read?'checked':'')+' '+(write?'':'disabled')+' style="cursor:'+(write?'pointer':'default')+'"> Read</label>';
+        var writeChk = '<label style="display:flex;align-items:center;gap:.3rem;cursor:'+(write?'pointer':'default')+';font-size:.75rem">'+
+          '<input type="checkbox" data-user="'+esc(u.username)+'" data-page="'+esc(p.key)+'" data-type="write" '+(perm.write?'checked':'')+' '+(write?'':'disabled')+' style="cursor:'+(write?'pointer':'default')+'"> Write</label>';
+        return '<tr>'+
+          '<td style="font-size:.8rem;color:var(--text-muted)">'+esc(p.label)+'</td>'+
+          '<td>'+readChk+'</td>'+
+          '<td>'+writeChk+'</td>'+
+        '</tr>';
+      }).join('');
+
+      var actions = write
+        ? '<div style="display:flex;gap:.4rem;margin-top:.75rem">'+
+            '<button onclick="window._chgPwd(\''+esc(u.username)+'\')" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Change Password</button>'+
+            '<button onclick="window._delUser(\''+esc(u.username)+'\')" style="background:transparent;border:1px solid rgba(248,113,113,.3);color:#f87171;border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Delete User</button>'+
+          '</div>'
+        : '';
+
+      return '<div class="card mb-3">'+
+        '<div class="card-header d-flex align-items-center justify-content-between">'+
+          '<div>'+
+            '<span style="font-family:var(--font-mono);font-weight:600">'+esc(u.username)+'</span>'+
+            '<span style="font-size:.72rem;color:var(--text-muted);margin-left:.75rem">Created '+created+'</span>'+
+          '</div>'+
+        '</div>'+
+        '<div class="card-body p-0">'+
+          '<table class="table table-vcenter mb-0" style="font-size:.8rem">'+
+            '<thead><tr><th style="width:30%">Page</th><th style="width:35%">Read</th><th style="width:35%">Write</th></tr></thead>'+
+            '<tbody>'+permRows+'</tbody>'+
+          '</table>'+
+          (write ? '<div style="padding:.75rem 1rem;border-top:1px solid var(--border)">'+actions+'</div>' : '')+
+        '</div>'+
+      '</div>';
+    }).join('');
+
+    // Wire up permission checkboxes
+    if (canWrite()) {
+      container.querySelectorAll('input[type="checkbox"][data-user]').forEach(function(cb){
+        cb.addEventListener('change', function(){
+          var username = cb.dataset.user;
+          var pageKey  = cb.dataset.page;
+          var type     = cb.dataset.type;
+          var user     = _users.find(function(u){ return u.username === username; });
+          if (!user) return;
+          var perms = user.permissions || {};
+          var perm  = Object.assign({ read: false, write: false }, perms[pageKey] || {});
+
+          if (type === 'read') {
+            perm.read = cb.checked;
+            if (!perm.read) perm.write = false; // can't write without read
+          } else {
+            perm.write = cb.checked;
+            if (perm.write) perm.read = true; // write implies read
+          }
+
+          // Update local state
+          if (!user.permissions) user.permissions = {};
+          user.permissions[pageKey] = perm;
+
+          // Sync read checkbox if write was toggled
+          var readCb = container.querySelector('input[data-user="'+username+'"][data-page="'+pageKey+'"][data-type="read"]');
+          if (readCb) readCb.checked = perm.read;
+          var writeCb = container.querySelector('input[data-user="'+username+'"][data-page="'+pageKey+'"][data-type="write"]');
+          if (writeCb) writeCb.checked = perm.write;
+
+          // Save to server
+          fetch('/api/permissions', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, pageKey, canRead: perm.read, canWrite: perm.write })
+          }).catch(function(){ console.error('Failed to save permission'); });
+        });
+      });
+    }
+  }
 
   // Add user form toggle
   var showAddBtn = $('showAddUser');
   if (showAddBtn) showAddBtn.addEventListener('click', function(){
     var f = $('addUserForm');
-    f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    if (f) f.style.display = f.style.display === 'none' ? 'block' : 'none';
   });
 
   // Submit new user
@@ -1847,37 +1946,27 @@ sendNotif = function(title, body, tag){
   if (submitBtn) submitBtn.addEventListener('click', function(){
     var username = $('newUsername').value.trim();
     var password = $('newPassword').value;
-    var role     = $('newRole').value;
     var errEl    = $('addUserError');
     if (!username || !password) { errEl.textContent='Username and password required'; errEl.style.display='block'; return; }
     fetch('/api/users', {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, role })
+      body: JSON.stringify({ username, password })
     }).then(function(r){ return r.json(); }).then(function(d){
       if (d.error) { errEl.textContent=d.error; errEl.style.display='block'; return; }
-      $('newUsername').value=''; $('newPassword').value=''; errEl.style.display='none';
+      $('newUsername').value=''; $('newPassword').value='';
+      errEl.style.display='none';
       $('addUserForm').style.display='none';
       loadUsers();
     });
   });
-
-  // Change role
-  window._setRole = function(username, role) {
-    fetch('/api/users/'+username, {
-      method: 'PATCH', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role })
-    }).then(function(){ loadUsers(); });
-  };
 
   // Change password modal
   window._chgPwd = function(username) {
     $('chgPwdUsername').value = username;
     $('chgPwdNew').value = '';
     $('chgPwdError').style.display = 'none';
-    var modal = $('chgPwdModal');
-    modal.style.display = 'flex';
+    $('chgPwdModal').style.display = 'flex';
   };
   var cancelBtn = $('chgPwdCancel');
   if (cancelBtn) cancelBtn.addEventListener('click', function(){ $('chgPwdModal').style.display='none'; });
@@ -1904,6 +1993,4 @@ sendNotif = function(title, body, tag){
       .then(function(){ loadUsers(); });
   };
 
-  // Hide admin nav items by default — shown only if API confirms admin
-  document.querySelectorAll('.admin-only').forEach(function(el){ el.style.display='none'; });
 })();
