@@ -332,7 +332,7 @@ socket.on('routes:update', function(data){
   window._allRoutes = routes;
 
   var nb = $('routesNavBadge');
-  if (nb) nb.textContent = routes.length || '';
+  if (nb) nb.textContent = routes.length;
 
   // Dashboard card
   if (tbody) {
@@ -456,7 +456,7 @@ function renderRoutesPage(routes, filter){
     _allLists = data.lists || [];
     renderAddressLists(_allLists, ($('addressListsSearch')||{value:''}).value);
     var nb = $('addressListsNavBadge');
-    if (nb) nb.textContent = _allLists.length || '';
+    if (nb) nb.textContent = _allLists.length;
   });
 
   var s = $('addressListsSearch');
