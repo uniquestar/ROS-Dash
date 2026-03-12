@@ -852,8 +852,17 @@
   </div>
 
 <!-- SWITCHES -->
-  <div class="page-view" id="page-switches">
-    <div class="container-fluid px-0" style="max-width:1400px;margin:0 auto">
+<div class="page-view" id="page-switches">
+  <div class="container-fluid px-0" style="max-width:1400px;margin:0 auto">
+
+    <!-- Tab bar -->
+    <div style="display:flex;gap:0;margin-bottom:1rem;border-bottom:1px solid var(--border)">
+      <button class="sw-tab-btn active" data-tab="visualiser" style="background:none;border:none;border-bottom:2px solid var(--accent-rx);color:var(--text-main);padding:.5rem 1.2rem;font-size:.85rem;cursor:pointer;margin-bottom:-1px">Port Visualiser</button>
+      <button class="sw-tab-btn" data-tab="table" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--text-muted);padding:.5rem 1.2rem;font-size:.85rem;cursor:pointer;margin-bottom:-1px">Port Allocations</button>
+    </div>
+
+    <!-- TABLE TAB -->
+    <div id="sw-tab-table" class="sw-tab-content" style="display:none">
       <div class="card">
         <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
           <h3 class="card-title">Switch Port Allocations</h3>
@@ -863,19 +872,48 @@
           </div>
         </div>
         <div class="card-body p-0">
-          <div class="data-scroll" style="max-height:calc(100vh - 200px);overflow-y:auto">
+          <div class="data-scroll" style="max-height:calc(100vh - 260px);overflow-y:auto">
             <table class="table table-vcenter mb-0" style="table-layout:fixed;width:100%">
               <colgroup><col style="width:15%"><col style="width:12%"><col style="width:18%"><col style="width:22%"><col style="width:20%"><col style="width:13%"></colgroup>
               <thead style="position:sticky;top:0;background:var(--bg-card)">
                 <tr><th>Switch</th><th>Port</th><th>MAC</th><th>Hostname</th><th>IP</th><th>VLAN</th></tr>
               </thead>
-              <tbody id="switchesTable"><tr><td colspan="5" class="empty-state">Waiting for switch data…</td></tr></tbody>
+              <tbody id="switchesTable"><tr><td colspan="6" class="empty-state">Waiting for switch data…</td></tr></tbody>
             </table>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- VISUALISER TAB -->
+    <div id="sw-tab-visualiser" class="sw-tab-content">
+      <div class="card mb-3">
+        <div class="card-header d-flex align-items-center gap-3">
+          <h3 class="card-title mb-0">Port Visualiser</h3>
+          <select id="swVisSelect" class="form-control form-control-sm" style="width:200px">
+            <option value="">— Select switch —</option>
+          </select>
+          <span id="swVisLastUpdate" style="font-size:.72rem;color:var(--text-muted);margin-left:auto"></span>
+        </div>
+      </div>
+      <div id="swVisDiagram" style="min-height:200px">
+        <div class="empty-state">Select a switch to view port layout</div>
+      </div>
+    </div>
+
   </div>
+
+  <!-- Port detail modal -->
+  <div id="swPortModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;width:100%;max-width:420px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+        <h4 id="swPortModalTitle" style="margin:0;color:var(--text-main)">Port</h4>
+        <button id="swPortModalClose" style="background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer">✕</button>
+      </div>
+      <div id="swPortModalBody"></div>
+    </div>
+  </div>
+</div>
 
 
 <!-- ROUTES -->
