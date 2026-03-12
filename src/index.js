@@ -1,6 +1,13 @@
 require('dotenv').config();
 
-const { makeToken, requireAuth, requireAuthSocket, requireAdmin, validateUser } = require('./auth');
+const path   = require('path');
+const { initDb } = require('./db');
+
+// Initialise database — path can be overridden via DB_PATH env var
+const dbPath = process.env.DB_PATH || path.join(process.cwd(), 'ros-dash.db');
+initDb(dbPath);
+
+const { makeToken, requireAuth, requireAuthSocket, requireAdmin, validateUser, getTokenUser, requirePageRead, requirePageWrite } = require('./auth');
 const express = require('express');
 const http    = require('http');
 const { Server } = require('socket.io');
@@ -45,65 +52,77 @@ const authedUser = validateUser(username, password);
   }
 });
 
+// Current user info
+app.get('/api/me', requireAuth, (req, res) => {
+  const user = getTokenUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorised' });
+  res.json({ username: user.username, permissions: user.permissions || {} });
+});
+
 // Logout route
 app.get('/logout', (_req, res) => {
   res.setHeader('Set-Cookie', 'rosdash_token=; HttpOnly; Path=/; Max-Age=0');
   res.redirect('/login.html');
 });
 
-// User management API — admin only
-const fs_users = require('fs');
-const path_users = require('path');
-const USERS_FILE = path_users.join(__dirname, '..', 'users.json');
+// User management API
 const crypto_users = require('crypto');
+const { getAllUsers, getUser, createUser, updatePassword, deleteUser, getUserPermissions, setPermission, getPages } = require('./db');
 
-function loadUsersFile() {
-  try { return JSON.parse(fs_users.readFileSync(USERS_FILE, 'utf8')); } catch { return {}; }
-}
-function saveUsersFile(users) {
-  fs_users.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-}
 function hashPassword(password) {
   const salt = crypto_users.randomBytes(16).toString('hex');
   const hash = crypto_users.pbkdf2Sync(password, salt, 100000, 64, 'sha256').toString('hex');
   return `${salt}:${hash}`;
 }
 
-app.get('/api/users', requireAuth, requireAdmin, (_req, res) => {
-  const users = loadUsersFile();
-  const safe  = Object.entries(users).map(([username, u]) => ({
-    username, role: u.role, createdAt: u.createdAt,
+// List all users — requires users:read
+app.get('/api/users', requireAuth, requirePageRead('users'), (_req, res) => {
+  const users = getAllUsers();
+  const result = users.map(u => ({
+    username: u.username,
+    createdAt: u.created_at,
+    permissions: getUserPermissions(u.id),
   }));
-  res.json(safe);
+  res.json(result);
 });
 
-app.post('/api/users', requireAuth, requireAdmin, (req, res) => {
-  const { username, password, role } = req.body;
+// Add user — requires users:write
+app.post('/api/users', requireAuth, requirePageWrite('users'), (req, res) => {
+  const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
-  const users = loadUsersFile();
-  if (users[username]) return res.status(409).json({ error: 'User already exists' });
-  users[username] = { password: hashPassword(password), role: role === 'admin' ? 'admin' : 'viewer', createdAt: new Date().toISOString() };
-  saveUsersFile(users);
+  if (getUser(username)) return res.status(409).json({ error: 'User already exists' });
+  createUser(username, hashPassword(password), new Date().toISOString());
   res.json({ ok: true });
 });
 
-app.patch('/api/users/:username', requireAuth, requireAdmin, (req, res) => {
+// Change password — requires users:write
+app.patch('/api/users/:username', requireAuth, requirePageWrite('users'), (req, res) => {
   const { username } = req.params;
-  const { password, role } = req.body;
-  const users = loadUsersFile();
-  if (!users[username]) return res.status(404).json({ error: 'User not found' });
-  if (password) users[username].password = hashPassword(password);
-  if (role)     users[username].role = role === 'admin' ? 'admin' : 'viewer';
-  saveUsersFile(users);
+  const { password } = req.body;
+  if (!getUser(username)) return res.status(404).json({ error: 'User not found' });
+  if (password) updatePassword(username, hashPassword(password));
   res.json({ ok: true });
 });
 
-app.delete('/api/users/:username', requireAuth, requireAdmin, (req, res) => {
+// Delete user — requires users:write
+app.delete('/api/users/:username', requireAuth, requirePageWrite('users'), (req, res) => {
   const { username } = req.params;
-  const users = loadUsersFile();
-  if (!users[username]) return res.status(404).json({ error: 'User not found' });
-  delete users[username];
-  saveUsersFile(users);
+  if (!getUser(username)) return res.status(404).json({ error: 'User not found' });
+  deleteUser(username);
+  res.json({ ok: true });
+});
+
+// Get pages list — requires users:read
+app.get('/api/pages', requireAuth, requirePageRead('users'), (_req, res) => {
+  res.json(getPages());
+});
+
+// Set permission — requires users:write
+app.post('/api/permissions', requireAuth, requirePageWrite('users'), (req, res) => {
+  const { username, pageKey, canRead, canWrite } = req.body;
+  const user = getUser(username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  setPermission(user.id, pageKey, canRead, canWrite);
   res.json({ ok: true });
 });
 
