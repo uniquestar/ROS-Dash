@@ -16,6 +16,13 @@ function makeDestKey(c) {
   return dst || 'unknown';
 }
 
+function isRFC1918(addr) {
+  const ip = addr.includes(':') ? addr.split(':')[0] : addr;
+  return ip.startsWith('10.') ||
+         ip.startsWith('192.168.') ||
+         /^172\.(1[6-9]|2\d|3[01])\./.test(ip);
+}
+
 class ConnectionsCollector {
   constructor({ ros, io, pollMs, topN, dhcpNetworks, dhcpLeases, arp, state }) {
     this.ros = ros;
@@ -59,7 +66,7 @@ class ConnectionsCollector {
       const dst = c['dst-address'] || c.dst || '';
       if (id) curIds.add(id);
       if (src && isInCidrs(src, lanCidrs)) srcCounts.set(src, (srcCounts.get(src) || 0) + 1);
-      if (dst && !isInCidrs(dst, lanCidrs)) {
+      if (dst && !isInCidrs(dst, lanCidrs) && !isRFC1918(dst)) {
         const k = makeDestKey(c);
         dstCounts.set(k, (dstCounts.get(k) || 0) + 1);
       }
@@ -91,7 +98,7 @@ class ConnectionsCollector {
 
     for (const c of (conns || [])) {
       const dst  = c['dst-address'] || c.dst || '';
-      if (!dst || isInCidrs(dst, lanCidrs)) continue;
+      if (!dst || isInCidrs(dst, lanCidrs) || isRFC1918(dst)) continue;
       const ip   = dst.split(':')[0];
       const dstAddr = c['dst-address'] || c.dst || '';
       const port = dstAddr.includes(':') ? dstAddr.split(':')[1] : '';
