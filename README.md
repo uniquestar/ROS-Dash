@@ -3,7 +3,7 @@
 
 > Real-time MikroTik RouterOS v7 dashboard — streaming binary API, Socket.IO, Docker-ready.
 
-ROS-Dash connects directly to the RouterOS API over a persistent binary TCP connection, streaming live data to the browser via Socket.IO. No page refreshes. No agents. Built-in authentication, multi-user support, and Cisco switch integration.
+ROS-Dash connects directly to the RouterOS API over a persistent binary TCP connection, streaming live data to the browser via Socket.IO. No page refreshes. No agents. Built-in authentication, granular per-user permissions, and Cisco switch integration with a graphical port visualiser.
 
 Forked and significantly enhanced from [MikroDash](https://github.com/SecOps-7/MikroDash) by SecOps-7.
 
@@ -19,36 +19,52 @@ Forked and significantly enhanced from [MikroDash](https://github.com/SecOps-7/M
 - **Network card** — animated SVG topology diagram with live wired client counts, multiple WAN IPs, LAN subnets, VPN peer count, and latency chart
 - **Connections card** — total connection count, protocol breakdown, top sources with hostname resolution, top destinations with geo-IP country flags
 - **IP Neighbours card** — CDP/LLDP discovered adjacent devices with interface, identity, IP, and version
-- **WireGuard card** — active peer list with accurate connection status (peers with no handshake in 5 minutes shown as offline)
+- **WireGuard card** — active peer list with accurate connection status (peers with no handshake in 5 minutes shown as idle)
 
 ### Pages
 | Page | Description |
 |---|---|
-| Interfaces | All interfaces as compact tiles with status, IP, live rates, and cumulative RX/TX totals |
+| Interfaces | All interfaces as compact tiles with status, IP(s), live rates, and cumulative RX/TX totals |
 | DHCP | Active DHCP leases with hostname, IP, MAC, status, lease type, and switch port location |
 | VPN | All WireGuard peers (active + idle) as tiles sorted active-first, with allowed IPs, endpoint, handshake, and traffic counters |
 | Connections | World map with animated arcs to destination countries, per-country protocol breakdown, top ports panel, and click-through connection detail modal |
-| Switches | Per-switch port allocation table showing switch, port, MAC, hostname, IP, and VLAN — populated via SNMP |
-| Firewall *(admin only)* | Top hits, Filter, NAT, and Mangle rule tables with packet counts |
+| Switches | Graphical port visualiser and port allocation table — populated via SNMP from Cisco Catalyst switches |
+| Routes | Active routing table with flags, destination, gateway, distance, and type |
+| Address Lists | Firewall address lists grouped by list name with address, comment, and creation date |
+| Firewall | Top hits, Filter, NAT, and Mangle rule tables with packet counts |
 | Logs | Live router log stream with severity filter and text search |
-| Users *(admin only)* | User management — add, delete, change passwords and roles |
+| Users | User management — add, delete, change passwords, and configure per-page permissions |
 
 ### Authentication & Access Control
 - **Login page** with username/password authentication
-- **Session tokens** — HMAC-signed, 8-hour expiry
-- **Multi-user support** — users stored in `users.json` with PBKDF2 hashed passwords
-- **Role-based access** — `admin` and `viewer` roles
-- **Admin-only pages** — Firewall and User Management restricted to admin users
+- **Session tokens** — HMAC-signed, 8-hour expiry, all sessions invalidated on server restart
+- **SQLite-backed user store** — replaces flat `users.json`, supports concurrent access
+- **Granular per-page permissions** — each user has independent read/write access per page
+- **Admin users** — full access to all pages including Users management
+- **Viewer users** — dashboard and about access by default; additional pages granted by admin
 - **Protected WebSocket** — unauthenticated socket connections rejected server-side
+- **CLI user management** — `src/add-user.js` for emergency access without the web UI
 
 ### Cisco Switch Integration
-ROS-Dash can poll Cisco Catalyst switches via SNMPv2c to build a complete port allocation map, cross-referenced with DHCP leases and ARP tables for hostname and IP resolution.
+ROS-Dash polls Cisco Catalyst switches via SNMPv2c to build a complete port map, cross-referenced with DHCP leases and ARP tables for hostname and IP resolution.
 
 - Polls MAC address tables per VLAN via VLAN-context SNMP (`community@vlan`)
-- VLANs discovered dynamically from Mikrotik VLAN interface config — no need to hardcode
-- Uplink ports excluded from reporting
+- VLANs discovered dynamically from Mikrotik VLAN interface config — no hardcoding required
+- Collects port status (up/down), PoE delivery status, and connected device descriptions
+- Supports single switches and multi-switch stacks — stack members displayed as separate switch panels
+- Uplink ports included in visualiser (shown in purple), excluded from MAC table reporting
 - Results surfaced on the Switches page and inline on the DHCP page (Switch + Port columns)
 - Configured via `switches.json` (see Switch Setup below)
+
+#### Port Visualiser
+The Switches page includes a graphical port layout mirroring the physical switch faceplate:
+
+- Ports laid out in pairs, odd ports top row / even ports bottom row (left to right)
+- Colour coded: **blue** = up, **green** = up + PoE delivering, **grey** = down, **purple** = uplink
+- Green dot indicator on ports actively delivering PoE power
+- Click any port for detail popup — MAC address, hostname, IP, VLAN, PoE status, device type
+- Multi-switch stacks show all members simultaneously, one panel per switch
+- Auto-refreshes every 120 seconds to reflect switch changes
 
 ### Notifications
 - Bell icon opens an alert history panel showing the last 50 alerts with timestamps
@@ -67,8 +83,8 @@ ROS-Dash includes built-in authentication and is suitable for deployment behind 
 **Recommended setup:**
 - Deploy behind Nginx Proxy Manager or similar with a valid SSL certificate
 - Use a dedicated read-only API user on the router (see RouterOS Setup below)
-- Keep `users.json`, `.env`, and `switches.json` outside the Docker image, mounted as volumes
-- Never commit `.env`, `users.json`, or `switches.json` to version control
+- Keep `.env`, `switches.json`, and `ros-dash.db` outside the Docker image, mounted as volumes
+- Never commit `.env` or `switches.json` to version control
 
 ---
 
@@ -90,7 +106,7 @@ cp .env.example .env
 vim .env
 ```
 
-Create your first admin user:
+Create the database and your first admin user:
 
 ```bash
 npm install
@@ -105,11 +121,13 @@ docker run -d \
   --name ros-dash \
   --network host \
   --env-file /path/to/.env \
-  --mount type=bind,source=/path/to/users.json,target=/app/users.json \
+  --mount type=bind,source=/path/to/ros-dash.db,target=/app/ros-dash.db \
   --mount type=bind,source=/path/to/switches.json,target=/app/switches.json \
   --restart unless-stopped \
   ros-dash
 ```
+
+Set `DB_PATH=/app/ros-dash.db` in your `.env` to ensure the database is written to the mounted path.
 
 - Dashboard: `http://your-server:3081`
 - Health check: `http://your-server:3081/healthz`
@@ -124,7 +142,7 @@ docker run -d \
   --name ros-dash \
   --network host \
   --env-file /path/to/.env \
-  --mount type=bind,source=/path/to/users.json,target=/app/users.json \
+  --mount type=bind,source=/path/to/ros-dash.db,target=/app/ros-dash.db \
   --mount type=bind,source=/path/to/switches.json,target=/app/switches.json \
   --restart unless-stopped \
   ros-dash
@@ -185,11 +203,13 @@ Create `switches.json` in the project root (or on the server alongside `.env`). 
 | `name` | Display name shown in the dashboard |
 | `ip` | Management IP of the switch |
 | `community` | SNMPv2c community string |
-| `mikrotikInterface` | Mikrotik interface name this switch is connected to — used to discover VLANs dynamically |
+| `mikrotikInterface` | Mikrotik interface name this switch connects to — used to discover VLANs dynamically |
 | `defaultVlan` | Native/default VLAN on the switch (not reflected in Mikrotik VLAN config) |
-| `uplinkPorts` | Ports to exclude from reporting (uplinks back to Mikrotik) |
+| `uplinkPorts` | Uplink port name(s) — shown in visualiser as uplinks, excluded from MAC table |
 
 VLANs are discovered automatically from `/interface/vlan/print` on the Mikrotik — any new VLANs added to the router will be picked up without changing `switches.json`.
+
+For stacked switches, configure each stack as a single entry — ROS-Dash detects the number of stack members automatically and displays each switch as a separate panel in the visualiser.
 
 ---
 
@@ -202,7 +222,9 @@ node src/add-user.js <username> <password> [role]
 # role: admin or viewer (default: viewer)
 ```
 
-Or via the web UI at `/users` (admin login required).
+Or via the web UI at the Users page (requires users:write permission).
+
+Permissions are configured per user per page via the Users page. Changes take effect on the user's next login.
 
 ---
 
@@ -219,6 +241,7 @@ ROUTER_PASS=change-me        # API password
 DEFAULT_IF=ether1            # Default WAN interface for traffic chart
 HISTORY_MINUTES=30           # Traffic chart history window
 DASH_SECRET=                 # Random string for session token signing
+DB_PATH=./ros-dash.db        # Path to SQLite database file
 
 # Polling intervals (ms)
 CONNS_POLL_MS=3000
@@ -265,13 +288,15 @@ FIREWALL_TOP_N=15
 | DHCP Leases | 15s | Active lease table |
 | ARP | 30s | MAC to IP mappings |
 | IP Neighbours | 60s | CDP/LLDP neighbour discovery |
+| Routes | 30s | Active routing table |
+| Address Lists | 60s | Firewall address lists |
 
 ### Polled — Cisco Switches (SNMP)
 | Collector | Interval | Data |
 |---|---|---|
-| Switches | 120s | MAC address tables per VLAN, port allocations |
+| Switches | 120s | MAC tables, port status, PoE status and device descriptions |
 
-All RouterOS collectors run **concurrently** on a single TCP connection.
+All RouterOS collectors run **concurrently** on a single persistent TCP connection.
 
 ---
 
