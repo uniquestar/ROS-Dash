@@ -46,6 +46,7 @@ var routerTag        = $('routerTag');
 var pageTitle        = $('pageTitle');
 var ifaceGrid        = $('ifaceGrid');
 var dhcpTable        = $('dhcpTable');
+var dhcpCanWrite     = false;
 var dhcpTotalBadge   = $('dhcpTotalBadge');
 var dhcpNavBadge     = $('dhcpNavBadge');
 var dhcpSearch       = $('dhcpSearch');
@@ -721,7 +722,7 @@ function renderDhcp(leases){
     dhcpTotalBadge.style.fontSize = '.68rem';
   }
   if(dhcpNavBadge) dhcpNavBadge.textContent = count;
-if(!filtered.length){dhcpTable.innerHTML='<tr><td colspan="7" class="empty-state">No leases'+(leaseFilter?' matching filter':'')+'\u2026</td></tr>';return;}
+if(!filtered.length){dhcpTable.innerHTML='<tr><td colspan="8" class="empty-state">No leases'+(leaseFilter?' matching filter':'')+'\u2026</td></tr>';return;}
   dhcpTable.innerHTML=filtered.map(function(l){
     var st=(l.status||'').toLowerCase();
     var pillCls=st==='bound'?'bound':st==='waiting'||st==='offered'?'waiting':'expired';
@@ -735,8 +736,71 @@ if(!filtered.length){dhcpTable.innerHTML='<tr><td colspan="7" class="empty-state
       '<td style="font-size:.75rem;'+typeCls+'">'+esc(l.type||'dynamic')+'</td>'+
       '<td style="font-size:.75rem;color:var(--text-muted)">'+esc((sp&&sp.switch)||'\u2014')+'</td>'+
       '<td style="font-family:var(--font-mono);font-size:.72rem;color:var(--text-muted)">'+esc((sp&&sp.port)||'\u2014')+'</td>'+
+      (dhcpCanWrite && l.type==='dynamic'
+        ? '<td><button class="btn btn-sm btn-outline-success py-0 px-1 make-static-btn" data-ip="'+esc(l.ip)+'" style="font-size:.65rem;line-height:1.4">Reserve</button></td>'
+        : dhcpCanWrite && l.type==='static'
+        ? '<td><button class="btn btn-sm btn-outline-danger py-0 px-1 remove-static-btn" data-ip="'+esc(l.ip)+'" style="font-size:.65rem;line-height:1.4">Release</button></td>'
+        : '<td></td>')+
       '</tr>';
   }).join('');
+
+  // Wire up Reserve buttons
+  dhcpTable.querySelectorAll('.make-static-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var ip = btn.dataset.ip;
+      btn.disabled = true;
+      btn.textContent = '…';
+      fetch('/api/dhcp/make-static', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip: ip })
+      }).then(function(r){ return r.json(); }).then(function(data){
+        if (data.ok) {
+          // Update lease type in local cache and re-render immediately
+          var lease = allLeases.find(function(l){ return l.ip === ip; });
+          if (lease) lease.type = 'static';
+          renderDhcp(allLeases);
+        } else {
+          btn.textContent = 'Error';
+          btn.disabled = false;
+          console.error('[dhcp] make-static error:', data.error);
+        }
+      }).catch(function(){
+        btn.textContent = 'Error';
+        btn.disabled = false;
+      });
+    });
+  });
+
+  // Wire up Release buttons
+  dhcpTable.querySelectorAll('.remove-static-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var ip = btn.dataset.ip;
+      btn.disabled = true;
+      btn.textContent = '…';
+      fetch('/api/dhcp/remove-static', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip: ip })
+      }).then(function(r){ return r.json(); }).then(function(data){
+        if (data.ok) {
+          // Remove from local lease cache and re-render immediately
+          allLeases = allLeases.filter(function(l){ return l.ip !== ip; });
+          renderDhcp(allLeases);
+        } else {
+          btn.textContent = 'Error';
+          btn.disabled = false;
+          console.error('[dhcp] remove-static error:', data.error);
+        }
+      }).catch(function(){
+        btn.textContent = 'Error';
+        btn.disabled = false;
+      });
+    });
+  });
+  
 }
 socket.on('leases:list',function(data){
   allLeases=data.leases||[];
@@ -1792,6 +1856,8 @@ sendNotif = function(title, body, tag){
     .then(function(me){
       window._currentUser = me;
       var perms = me.permissions || {};
+      dhcpCanWrite = !!(perms.dhcp && perms.dhcp.write);
+      if (allLeases && allLeases.length) renderDhcp(allLeases);
 
       // Show/hide nav items based on read permissions
       var navMap = {

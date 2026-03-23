@@ -25,7 +25,7 @@ Forked and significantly enhanced from [MikroDash](https://github.com/SecOps-7/M
 | Page | Description |
 |---|---|
 | Interfaces | All interfaces as compact tiles with status, IP(s), live rates, and cumulative RX/TX totals |
-| DHCP | Active DHCP leases with hostname, IP, MAC, status, lease type, and switch port location |
+| DHCP | Active DHCP leases with hostname, IP, MAC, status, lease type, and switch port location. Users with dhcp:write permission can Reserve (make static) or Release (remove static) leases directly from the table |
 | VPN | All WireGuard peers (active + idle) as tiles sorted active-first, with allowed IPs, endpoint, handshake, and traffic counters |
 | Connections | World map with animated arcs to destination countries, per-country protocol breakdown, top ports panel, and click-through connection detail modal |
 | Switches | Graphical port visualiser and port allocation table — populated via SNMP from Cisco Catalyst switches |
@@ -82,7 +82,7 @@ ROS-Dash includes built-in authentication and is suitable for deployment behind 
 
 **Recommended setup:**
 - Deploy behind Nginx Proxy Manager or similar with a valid SSL certificate
-- Use a dedicated read-only API user on the router (see RouterOS Setup below)
+- Use a dedicated API user on the router with only the permissions it needs (see RouterOS Setup below)
 - Keep `.env`, `switches.json`, and `ros-dash.db` outside the Docker image, mounted as volumes
 - Never commit `.env` or `switches.json` to version control
 
@@ -151,12 +151,20 @@ docker run -d \
 ---
 
 ## RouterOS Setup
+ROS-Dash requires a RouterOS API user with appropriate permissions. If you only need read-only features, use the read-only group. If you want to use DHCP reservation (Reserve/Release buttons), the API user needs write access too.
 
-Create a read-only API user (recommended):
-
+**Read-only (no DHCP reservation):**
 ```
 /user/group/add name=api-readonly policy=read,api,test
 /user/add name=rosdash group=api-readonly password=your-secure-password
+```
+
+**Read-write (required for DHCP reservation):**
+```
+/user/group/add name=api-readwrite policy=read,write,api,test
+/user/add name=rosdash group=api-readwrite password=your-secure-password
+```
+
 ```
 
 To use API-SSL (TLS), enable the ssl service and set `ROUTER_TLS=true` in your `.env`:
