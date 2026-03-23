@@ -16,6 +16,7 @@ class DhcpLeasesCollector {
 
   getNameByIP(ip)  { return this.byIP.get(ip);  }
   getNameByMAC(mac){ return this.byMAC.get(mac); }
+  getLeaseByIP(ip) { return this.byIP.get(ip); }
 
   getActiveLeaseIPs() {
     const out = [];
@@ -35,7 +36,8 @@ class DhcpLeasesCollector {
     const dynamic = l.dynamic === 'true' || l.dynamic === true;
     const type    = dynamic ? 'dynamic' : 'static';
 
-    if (ip) this.byIP.set(ip, { name, mac, hostName: l['host-name'] || '', comment: l.comment || '', status, type });
+    const id = l['.id'] || '';
+    if (ip) this.byIP.set(ip, { name, mac, hostName: l['host-name'] || '', comment: l.comment || '', status, type, id });
     if (mac) this.byMAC.set(mac, { name, ip });
 
     if (mac && ip && !this.seenMACs.has(mac)) {

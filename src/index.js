@@ -52,6 +52,42 @@ const authedUser = validateUser(username, password);
   }
 });
 
+// Make DHCP lease static
+app.post('/api/dhcp/make-static', requireAuth, requirePageWrite('dhcp'), async (req, res) => {
+  const { ip } = req.body;
+  if (!ip) return res.status(400).json({ error: 'ip required' });
+  const lease = dhcpLeases.getLeaseByIP(ip);
+  if (!lease) return res.status(404).json({ error: 'Lease not found' });
+  if (lease.type === 'static') return res.status(400).json({ error: 'Already static' });
+  if (!lease.id) return res.status(400).json({ error: 'No lease ID — try again after next poll' });
+  try {
+    await ros.write('/ip/dhcp-server/lease/make-static', ['=.id=' + lease.id]);
+    console.log(`[dhcp] made static: ${ip} id=${lease.id}`);
+    res.json({ ok: true });
+  } catch(e) {
+    console.error('[dhcp] make-static failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Remove static DHCP lease
+app.post('/api/dhcp/remove-static', requireAuth, requirePageWrite('dhcp'), async (req, res) => {
+  const { ip } = req.body;
+  if (!ip) return res.status(400).json({ error: 'ip required' });
+  const lease = dhcpLeases.getLeaseByIP(ip);
+  if (!lease) return res.status(404).json({ error: 'Lease not found' });
+  if (lease.type === 'dynamic') return res.status(400).json({ error: 'Lease is already dynamic' });
+  if (!lease.id) return res.status(400).json({ error: 'No lease ID — try again after next poll' });
+  try {
+    await ros.write('/ip/dhcp-server/lease/remove', ['=.id=' + lease.id]);
+    console.log(`[dhcp] removed static lease: ${ip} id=${lease.id}`);
+    res.json({ ok: true });
+  } catch(e) {
+    console.error('[dhcp] remove-static failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Switch port data for visualiser
 app.get('/api/switches/list', requireAuth, requirePageRead('switches'), (req, res) => {
   res.json(switches.getSwitchList());
