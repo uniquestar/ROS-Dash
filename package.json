@@ -15,6 +15,7 @@
     "ipaddr.js": "^2.2.0",
     "net-snmp": "^3.26.1",
     "node-routeros": "^1.6.9",
-    "socket.io": "^4.7.5"
+    "socket.io": "^4.7.5",
+    "ssh2": "^1.17.0"
   }
 }

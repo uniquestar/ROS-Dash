@@ -88,6 +88,64 @@ app.post('/api/dhcp/remove-static', requireAuth, requirePageWrite('dhcp'), async
   }
 });
 
+// Router backup download
+app.get('/api/system/backup', requireAuth, requirePageRead('dashboard'), async (req, res) => {
+  const { Client } = require('ssh2');
+  const backupName = 'ros-dash-backup';
+  const backupFile = backupName + '.backup';
+
+  try {
+    // Step 1 — trigger backup save via RouterOS API
+    await ros.write('/system/backup/save', ['=name=' + backupName, '=dont-encrypt=yes']);
+    console.log('[backup] backup saved on router');
+
+    // Step 2 — give router a moment to write the file
+    await new Promise(r => setTimeout(r, 2000));
+
+    // Step 3 — SFTP the file off the router
+    const fileBuffer = await new Promise((resolve, reject) => {
+      const conn = new Client();
+      conn.on('ready', () => {
+        conn.sftp((err, sftp) => {
+          if (err) { conn.end(); return reject(err); }
+          const chunks = [];
+          const stream = sftp.createReadStream(backupFile);
+          stream.on('data', chunk => chunks.push(chunk));
+          stream.on('end', () => { conn.end(); resolve(Buffer.concat(chunks)); });
+          stream.on('error', err => { conn.end(); reject(err); });
+        });
+      });
+      conn.on('error', reject);
+      conn.connect({
+        host:     process.env.ROUTER_HOST,
+        port:     22,
+        username: process.env.ROUTER_USER,
+        password: process.env.ROUTER_PASS,
+      });
+    });
+
+    // Step 4 — clean up file on router
+    try {
+      await ros.write('/file/remove', ['=numbers=' + backupFile]);
+    } catch(e) {
+      console.warn('[backup] cleanup failed (non-fatal):', e.message);
+    }
+
+    // Step 5 — stream to browser
+    const date = new Date().toISOString().slice(0, 10);
+    const filename = 'ros-dash-backup-' + date + '.backup';
+    res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
+    console.log('[backup] sent ' + fileBuffer.length + ' bytes to client');
+
+  } catch(e) {
+    console.error('[backup] failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Switch port data for visualiser
 app.get('/api/switches/list', requireAuth, requirePageRead('switches'), (req, res) => {
   res.json(switches.getSwitchList());

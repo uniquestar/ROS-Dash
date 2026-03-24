@@ -2340,4 +2340,45 @@ function renderVisualiser(switchName, module) {
     if (_selSwitch) renderVisualiser(_selSwitch, _selModule);
   });
 
+  // ── Router Backup ─────────────────────────────────────────────────────────
+(function(){
+  var btn    = $('backupBtn');
+  var status = $('backupStatus');
+  if (!btn) return;
+
+  btn.addEventListener('click', function(){
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    if (status) status.textContent = 'Triggering backup on router…';
+
+    fetch('/api/system/backup', { credentials: 'include' })
+      .then(function(r){
+        if (!r.ok) return r.json().then(function(d){ throw new Error(d.error || r.statusText); });
+        var disposition = r.headers.get('Content-Disposition') || '';
+        var match = disposition.match(/filename="([^"]+)"/);
+        var filename = match ? match[1] : 'ros-backup.backup';
+        return r.blob().then(function(blob){ return { blob: blob, filename: filename }; });
+      })
+      .then(function(result){
+        // Trigger browser download
+        var url = URL.createObjectURL(result.blob);
+        var a   = document.createElement('a');
+        a.href     = url;
+        a.download = result.filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        if (status) status.textContent = 'Downloaded ' + result.filename;
+        btn.disabled = false;
+        btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px;vertical-align:middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download Backup';
+      })
+      .catch(function(e){
+        if (status) status.textContent = 'Error: ' + e.message;
+        btn.disabled = false;
+        btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px;vertical-align:middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download Backup';
+      });
+  });
+})();
+
 })();
