@@ -161,7 +161,7 @@ ROS-Dash requires a RouterOS API user with appropriate permissions. If you only 
 
 **Read-write (required for DHCP reservation):**
 ```
-/user/group/add name=api-readwrite policy=read,write,api,test
+/user/group/add name=api-readwrite policy=read,write,api,test,sensitive,password,policy,ssh,ftp
 /user/add name=rosdash group=api-readwrite password=your-secure-password
 ```
 
