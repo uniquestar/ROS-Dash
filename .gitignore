@@ -10,3 +10,5 @@ node_modules/
 
 switches.json
 ros-dash.db
+ros-dash.db-wal
+ros-dash.db-shm
