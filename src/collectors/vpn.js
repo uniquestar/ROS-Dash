@@ -59,6 +59,15 @@ class VpnCollector {
         allowedIp: p['allowed-address'] || '',
         interface: p.interface || '',
         rx: rxBytes, tx: txBytes, rxRate, txRate,
+        // Management fields
+        id:                   p['.id'] || '',
+        disabled:             p.disabled === 'true' || p.disabled === true,
+        publicKey:            p['public-key'] || '',
+        clientAddress:        p['client-address'] || '',
+        clientDns:            p['client-dns'] || '',
+        clientEndpoint:       p['client-endpoint'] || '',
+        clientAllowedAddress: p['client-allowed-address'] || '',
+        comment:              p.comment || '',
       };
     });
     this.io.emit('vpn:update', { ts: Date.now(), tunnels });

@@ -52,6 +52,12 @@ const authedUser = validateUser(username, password);
   }
 });
 
+// WAN IPs for WireGuard endpoint dropdown
+app.get('/api/wanips', requireAuth, requirePageRead('vpn'), (req, res) => {
+  const ips = (wanIps.lastIps || []).map(ip => ip.split('/')[0]);
+  res.json({ ips });
+});
+
 // Make DHCP lease static
 app.post('/api/dhcp/make-static', requireAuth, requirePageWrite('dhcp'), async (req, res) => {
   const { ip } = req.body;
@@ -84,6 +90,194 @@ app.post('/api/dhcp/remove-static', requireAuth, requirePageWrite('dhcp'), async
     res.json({ ok: true });
   } catch(e) {
     console.error('[dhcp] remove-static failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── WireGuard Management ──────────────────────────────────────────────────
+
+const { generateKeypair, generatePsk, buildConfig } = require('./util/wireguard');
+const WG_INTERFACE  = 'WireGuard';
+const WG_LIST_PREFIX = 'WG-';
+const SERVER_LISTEN_PORT = 13231;
+
+// Get all WireGuard user peers with address list membership
+app.get('/api/wireguard/peers', requireAuth, requirePageRead('vpn'), async (req, res) => {
+  try {
+    const [peers, alRows] = await Promise.all([
+      ros.write('/interface/wireguard/peers/print'),
+      ros.write('/ip/firewall/address-list/print'),
+    ]);
+    // Only WireGuard interface peers
+    const wgPeers = (peers || []).filter(p => p.interface === WG_INTERFACE);
+    // Build map: ip -> [listName]
+    const ipLists = new Map();
+    for (const r of (alRows || [])) {
+      if (!(r.list || '').startsWith(WG_LIST_PREFIX)) continue;
+      const ip = r.address || '';
+      if (!ipLists.has(ip)) ipLists.set(ip, []);
+      ipLists.get(ip).push({ list: r.list, id: r['.id'], comment: r.comment || '' });
+    }
+    const result = wgPeers.map(p => {
+      const allowedIp = (p['allowed-address'] || '').split('/')[0];
+      const lists = ipLists.get(allowedIp + '/32') || ipLists.get(allowedIp) || [];
+      return {
+        id:                   p['.id'],
+        name:                 p.comment || p.name || '',
+        publicKey:            p['public-key'] || '',
+        allowedAddress:       p['allowed-address'] || '',
+        clientAddress:        p['client-address'] || '',
+        clientDns:            p['client-dns'] || '',
+        clientEndpoint:       p['client-endpoint'] || '',
+        clientAllowedAddress: p['client-allowed-address'] || '',
+        disabled:             p.disabled === 'true' || p.disabled === true,
+        addressLists:         lists,
+        currentList:          lists.length ? lists[0].list : '',
+      };
+    });
+    res.json(result);
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get WG- address lists
+app.get('/api/wireguard/address-lists', requireAuth, requirePageRead('vpn'), async (req, res) => {
+  try {
+    const rows = await ros.write('/ip/firewall/address-list/print');
+    const lists = [...new Set((rows || [])
+      .map(r => r.list || '')
+      .filter(l => l.startsWith(WG_LIST_PREFIX))
+    )].sort();
+    res.json(lists);
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get used WireGuard IPs for duplicate checking
+app.get('/api/wireguard/used-ips', requireAuth, requirePageRead('vpn'), async (req, res) => {
+  try {
+    const peers = await ros.write('/interface/wireguard/peers/print');
+    const ips = (peers || [])
+      .filter(p => p.interface === WG_INTERFACE)
+      .map(p => (p['allowed-address'] || '').split('/')[0])
+      .filter(Boolean);
+    res.json(ips);
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Create new WireGuard peer
+app.post('/api/wireguard/peers', requireAuth, requirePageWrite('vpn'), async (req, res) => {
+  const { name, allowedAddress, addressList, clientEndpoint, clientAllowedAddress } = req.body;
+  if (!name || !allowedAddress || !clientEndpoint) {
+    return res.status(400).json({ error: 'name, allowedAddress and clientEndpoint are required' });
+  }
+  // Validate /32
+  const ip = allowedAddress.split('/')[0];
+  const ipRe = /^192\.168\.168\.\d{1,3}$/;
+  if (!ipRe.test(ip)) return res.status(400).json({ error: 'Allowed address must be in 192.168.168.0/24' });
+
+  // Check for duplicate
+  try {
+    const existing = await ros.write('/interface/wireguard/peers/print');
+    const used = (existing || []).map(p => (p['allowed-address'] || '').split('/')[0]);
+    if (used.includes(ip)) return res.status(409).json({ error: 'IP address ' + ip + ' is already in use' });
+
+    // Generate keys
+    const { privateKey, publicKey } = generateKeypair();
+    const psk = generatePsk();
+
+    // Get server public key
+    const interfaces = await ros.write('/interface/wireguard/print');
+    const wgIface = (interfaces || []).find(i => i.name === WG_INTERFACE);
+    const serverPublicKey = wgIface ? wgIface['public-key'] : '';
+
+    // Create peer on router
+    await ros.write('/interface/wireguard/peers/add', [
+      '=interface='          + WG_INTERFACE,
+      '=comment='            + name,
+      '=name='               + name,
+      '=public-key='         + publicKey,
+      '=preshared-key='      + psk,
+      '=allowed-address='    + ip + '/32',
+      '=client-address='     + ip + '/24',
+      '=client-dns=192.168.168.1',
+      '=client-endpoint='    + clientEndpoint,
+      '=client-allowed-address=' + (clientAllowedAddress || '0.0.0.0/0'),
+    ]);
+
+    // Add to address list if specified
+    if (addressList && addressList.startsWith(WG_LIST_PREFIX)) {
+      await ros.write('/ip/firewall/address-list/add', [
+        '=list='    + addressList,
+        '=address=' + ip + '/32',
+        '=comment=' + name,
+      ]);
+    }
+
+    // Build client config
+    const config = buildConfig({
+      name, privateKey, psk, serverPublicKey,
+      allowedAddress:        ip + '/32',
+      clientAddress:         ip + '/24',
+      clientDns:             '192.168.168.1',
+      clientEndpoint,
+      clientAllowedAddresses: clientAllowedAddress || '0.0.0.0/0',
+      listenPort:            SERVER_LISTEN_PORT,
+    });
+
+    console.log('[wireguard] created peer:', name, ip);
+    res.json({ ok: true, config, publicKey });
+
+  } catch(e) {
+    console.error('[wireguard] create peer failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Update WireGuard peer (enable/disable, address list change)
+app.patch('/api/wireguard/peers/:id', requireAuth, requirePageWrite('vpn'), async (req, res) => {
+  const { id } = req.params;
+  const { disabled, addressList, currentList, allowedAddress } = req.body;
+  try {
+    // Enable/disable
+    if (typeof disabled !== 'undefined') {
+      if (disabled) {
+        await ros.write('/interface/wireguard/peers/disable', ['=.id=' + id]);
+      } else {
+        await ros.write('/interface/wireguard/peers/enable', ['=.id=' + id]);
+      }
+    }
+    // Address list change
+    if (typeof addressList !== 'undefined' && allowedAddress) {
+      const ip = allowedAddress.split('/')[0];
+      const rows = await ros.write('/ip/firewall/address-list/print');
+      // Remove existing WG- list entries for this IP
+      for (const r of (rows || [])) {
+        if ((r.list || '').startsWith(WG_LIST_PREFIX) &&
+            (r.address === ip + '/32' || r.address === ip)) {
+          await ros.write('/ip/firewall/address-list/remove', ['=.id=' + r['.id']]);
+        }
+      }
+      // Add to new list if specified
+      if (addressList) {
+        const peers = await ros.write('/interface/wireguard/peers/print');
+        const peer  = (peers || []).find(p => p['.id'] === id);
+        const comment = peer ? (peer.comment || peer.name || '') : '';
+        await ros.write('/ip/firewall/address-list/add', [
+          '=list='    + addressList,
+          '=address=' + ip + '/32',
+          '=comment=' + comment,
+        ]);
+      }
+    }
+    console.log('[wireguard] updated peer:', id);
+    res.json({ ok: true });
+  } catch(e) {
+    console.error('[wireguard] update peer failed:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

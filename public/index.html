@@ -841,7 +841,10 @@
     <div class="container-fluid px-0" style="max-width:1400px;margin:0 auto">
       <!-- All peer tiles -->
       <div class="card">
-        <div class="card-header"><h3 class="card-title">WireGuard Peers</h3></div>
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <h3 class="card-title mb-0">WireGuard Peers</h3>
+          <button id="wgAddPeerBtn" class="btn btn-sm btn-outline-primary" style="display:none">+ Add Peer</button>
+        </div>
         <div class="card-body" style="padding:.65rem .75rem">
           <div class="vpn-tile-grid" id="vpnPageGrid">
             <div class="empty-state">No peers configured</div>
@@ -850,6 +853,88 @@
       </div>
     </div>
   </div>
+
+<!-- WireGuard Edit Modal -->
+<div id="wgEditModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;width:100%;max-width:480px;max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
+      <h4 id="wgEditTitle" style="margin:0;color:var(--text-main)">Edit Peer</h4>
+      <button id="wgEditClose" style="background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer">✕</button>
+    </div>
+    <div id="wgEditBody"></div>
+  </div>
+</div>
+
+<!-- WireGuard Create Modal -->
+<div id="wgCreateModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;width:100%;max-width:520px;max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
+      <h4 style="margin:0;color:var(--text-main)">Add WireGuard Peer</h4>
+      <button id="wgCreateClose" style="background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer">✕</button>
+    </div>
+    <div id="wgCreateBody">
+      <div style="display:flex;flex-direction:column;gap:.85rem">
+
+        <div>
+          <label style="font-size:.75rem;color:var(--text-muted);display:block;margin-bottom:.25rem">Name</label>
+          <input id="wgcName" type="text" class="form-control form-control-sm" placeholder="Full name">
+        </div>
+
+        <div>
+          <label style="font-size:.75rem;color:var(--text-muted);display:block;margin-bottom:.25rem">Allowed Address (/32)</label>
+          <input id="wgcIp" type="text" class="form-control form-control-sm" placeholder="192.168.168.x">
+          <div id="wgcIpError" style="font-size:.7rem;color:#ef4444;margin-top:.2rem;display:none"></div>
+        </div>
+
+        <div>
+          <label style="font-size:.75rem;color:var(--text-muted);display:block;margin-bottom:.25rem">Address List</label>
+          <select id="wgcList" class="form-control form-control-sm">
+            <option value="">— None —</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="font-size:.75rem;color:var(--text-muted);display:block;margin-bottom:.25rem">Client Endpoint</label>
+          <select id="wgcEndpoint" class="form-control form-control-sm"></select>
+        </div>
+
+        <div>
+          <label style="font-size:.75rem;color:var(--text-muted);display:block;margin-bottom:.25rem">Tunnel Mode</label>
+          <div style="display:flex;gap:1rem;margin-bottom:.5rem">
+            <label style="font-size:.8rem;color:var(--text-main);cursor:pointer">
+              <input type="radio" name="wgcTunnel" value="full" checked style="margin-right:.3rem">Full Tunnel
+            </label>
+            <label style="font-size:.8rem;color:var(--text-main);cursor:pointer">
+              <input type="radio" name="wgcTunnel" value="split" style="margin-right:.3rem">Split Tunnel
+            </label>
+          </div>
+          <div id="wgcSplitWrap" style="display:none">
+            <input id="wgcSplitNets" type="text" class="form-control form-control-sm" placeholder="e.g. 192.168.168.0/24, 10.100.0.0/16">
+            <div style="font-size:.68rem;color:var(--text-muted);margin-top:.2rem">Comma separated networks</div>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.5rem">
+          <button id="wgCreateCancelBtn" class="btn btn-sm btn-outline-secondary">Cancel</button>
+          <button id="wgCreateSaveBtn" class="btn btn-sm btn-primary">Create Peer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Config display after creation -->
+    <div id="wgConfigDisplay" style="display:none">
+      <div style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:6px;padding:.75rem;margin-bottom:1rem;font-size:.75rem;color:#22c55e">
+        ✓ Peer created successfully. Save this config — it will not be shown again.
+      </div>
+      <textarea id="wgConfigText" readonly style="width:100%;height:220px;font-family:var(--font-mono);font-size:.7rem;background:var(--bg-main);color:var(--text-main);border:1px solid var(--border);border-radius:6px;padding:.75rem;resize:none"></textarea>
+      <div style="display:flex;gap:.5rem;margin-top:.75rem;justify-content:flex-end">
+        <button id="wgConfigCopy" class="btn btn-sm btn-outline-primary">Copy</button>
+        <button id="wgConfigDownload" class="btn btn-sm btn-outline-success">Download .conf</button>
+        <button id="wgConfigDone" class="btn btn-sm btn-primary">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- SWITCHES -->
 <div class="page-view" id="page-switches">
