@@ -225,7 +225,23 @@ socket.on('lan:overview',function(data){
   // WAN IP — update both original field and diagram
   var wip=(data.wanIp||'').split('/')[0]||'—';
   var ndWanIp=$('ndWanIp'); if(ndWanIp)ndWanIp.textContent=wip;
-  // if(wanIpDisplay)wanIpDisplay.textContent=wip;
+
+  // LAN info strip
+  var nets=(data&&data.networks)?data.networks:[];
+  var ndLanCidr=$('ndLanCidr'); if(ndLanCidr)ndLanCidr.textContent=nets.length?nets.map(function(n){return n.cidr;}).join(', '):'—';
+  var ndGateway=$('ndGateway'); if(ndGateway)ndGateway.textContent=nets.length&&nets[0].gateway?nets[0].gateway:'—';
+
+  var totalLeases = nets.reduce(function(acc, n){ return acc + (n.leaseCount || 0); }, 0);
+  var ndWiredCount = $('ndWiredCount');
+  if (ndWiredCount) ndWiredCount.textContent = totalLeases || '—';
+
+  if(!nets.length){if(lastLanData)return;lanOverview.innerHTML='<div class="empty-state">No DHCP networks</div>';return;}
+  lastLanData=data;
+  lanOverview.innerHTML=nets.map(function(n){
+    return'<div class="lan-net"><div class="lan-cidr"><span style="color:var(--text-muted);font-size:.65rem;margin-right:.3rem">LAN:</span>'+esc(n.cidr)+'</div>'+
+      '<div class="lan-meta">GW: '+esc(n.gateway||'—')+' '+DOT+' DNS: '+esc(n.dns||'—')+' '+DOT+' <strong style="color:rgba(200,215,240,.75)">'+n.leaseCount+'</strong> leases</div></div>';
+  }).join('');
+});
 
 socket.on('wan:ips', function(data) {
   var ips = data.ips || [];
@@ -237,20 +253,6 @@ socket.on('wan:ips', function(data) {
       return '<span style="display:block;line-height:1.4">' + ip + '</span>';
     }).join('');
   }
-});
-
-  // LAN info strip
-  var nets=data.networks||[];
-  var ndLanCidr=$('ndLanCidr'); if(ndLanCidr)ndLanCidr.textContent=nets.length?nets.map(function(n){return n.cidr;}).join(', '):'—';
-  var ndGateway=$('ndGateway'); if(ndGateway)ndGateway.textContent=nets.length&&nets[0].gateway?nets[0].gateway:'—';
-
-  var nets=(data&&data.networks)?data.networks:[];
-  if(!nets.length){if(lastLanData)return;lanOverview.innerHTML='<div class="empty-state">No DHCP networks</div>';return;}
-  lastLanData=data;
-  lanOverview.innerHTML=nets.map(function(n){
-    return'<div class="lan-net"><div class="lan-cidr"><span style="color:var(--text-muted);font-size:.65rem;margin-right:.3rem">LAN:</span>'+esc(n.cidr)+'</div>'+
-      '<div class="lan-meta">GW: '+esc(n.gateway||'—')+' '+DOT+' DNS: '+esc(n.dns||'—')+' '+DOT+' <strong style="color:rgba(200,215,240,.75)">'+n.leaseCount+'</strong> leases</div></div>';
-  }).join('');
 });
 
 // ── Connections ────────────────────────────────────────────────────────────
