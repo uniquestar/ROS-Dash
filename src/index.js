@@ -621,3 +621,16 @@ setInterval(() => {
 
 const PORT = parseInt(process.env.PORT || '3081', 10);
 server.listen(PORT, () => console.log(`[ROS-Dash] v0.4.8 listening on http://0.0.0.0:${PORT}`));
+
+// Graceful shutdown — checkpoint WAL so data persists across restarts
+const { getDb } = require('./db');
+function shutdown() {
+  console.log('[ROS-Dash] Shutting down — checkpointing database...');
+  try {
+    const db = getDb();
+    if (db) { db.pragma('wal_checkpoint(TRUNCATE)'); console.log('[ROS-Dash] Database checkpointed'); }
+  } catch(e) { console.error('[ROS-Dash] Checkpoint failed:', e.message); }
+  process.exit(0);
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT',  shutdown);
