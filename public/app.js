@@ -1856,6 +1856,7 @@ sendNotif = function(title, body, tag){
     .then(function(me){
       window._currentUser = me;
       var perms = me.permissions || {};
+      if (window._onMeLoaded) window._onMeLoaded(me);
       dhcpCanWrite = !!(perms.dhcp && perms.dhcp.write);
       if (allLeases && allLeases.length) renderDhcp(allLeases);
 
@@ -2380,5 +2381,316 @@ function renderVisualiser(switchName, module) {
       });
   });
 })();
+
+})();
+
+// ── WireGuard Management ──────────────────────────────────────────────────
+(function(){
+  var _wgPeers    = [];
+  var _wgLists    = [];
+  var _wanIps     = [];
+  var _editPeer   = null;
+  var _configName = '';
+  var vpnCanWrite = false;
+
+  // Set write permission when perms load
+  var _origPermHandler = window._permHandler;
+  document.addEventListener('permsLoaded', function(e){
+    var perms = e.detail || {};
+    vpnCanWrite = !!(perms.vpn && perms.vpn.write);
+    var addBtn = $('wgAddPeerBtn');
+    if (addBtn) addBtn.style.display = vpnCanWrite ? '' : 'none';
+  });
+
+  function loadWgData() {
+    Promise.all([
+      fetch('/api/wireguard/peers',        { credentials: 'include' }).then(r => r.json()),
+      fetch('/api/wireguard/address-lists', { credentials: 'include' }).then(r => r.json()),
+    ]).then(function(results){
+      _wgPeers = results[0] || [];
+      _wgLists = results[1] || [];
+      // Re-render tiles with edit buttons
+      renderWgTiles();
+    }).catch(function(e){ console.error('[wg]', e); });
+  }
+
+  function renderWgTiles() {
+    // Let the existing vpn:update handler render tiles first,
+    // then overlay edit buttons on WireGuard interface tiles
+    var grid = $('vpnPageGrid');
+    if (!grid || !vpnCanWrite) return;
+    // Add edit buttons to tiles that have matching peer data
+    grid.querySelectorAll('.vpn-tile').forEach(function(tile){
+      if (tile.querySelector('.wg-edit-btn')) return;
+      var nameEl = tile.querySelector('.vpn-tile-name');
+      if (!nameEl) return;
+      var tileName = nameEl.textContent.trim();
+      var peer = _wgPeers.find(function(p){ return p.name === tileName; });
+      if (!peer) return;
+      var btn = document.createElement('button');
+      btn.className = 'wg-edit-btn';
+      btn.dataset.id = peer.id;
+      btn.textContent = 'Edit';
+      btn.style.cssText = 'position:absolute;top:6px;right:6px;font-size:.6rem;padding:1px 6px;background:none;border:1px solid var(--border);border-radius:3px;color:var(--text-muted);cursor:pointer';
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        openEditModal(peer.id);
+      });
+      tile.style.position = 'relative';
+      tile.appendChild(btn);
+    });
+  }
+
+  function openEditModal(id) {
+    var peer = _wgPeers.find(function(p){ return p.id === id; });
+    if (!peer) return;
+    _editPeer = peer;
+    var title = $('wgEditTitle');
+    var body  = $('wgEditBody');
+    if (title) title.textContent = peer.name;
+
+    var listOptions = _wgLists.map(function(l){
+      return '<option value="'+esc(l)+'"'+(peer.currentList===l?' selected':'')+'>'+esc(l)+'</option>';
+    }).join('');
+
+    body.innerHTML =
+      '<div style="display:flex;flex-direction:column;gap:.85rem">'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;padding:.75rem;background:var(--bg-main);border-radius:6px">'+
+          '<div>'+
+            '<div style="font-size:.78rem;font-weight:600;color:var(--text-main)">'+esc(peer.name)+'</div>'+
+            '<div style="font-size:.68rem;color:var(--text-muted);font-family:var(--font-mono)">'+esc(peer.allowedAddress)+'</div>'+
+          '</div>'+
+          '<label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">'+
+            '<span style="font-size:.75rem;color:var(--text-muted)">Enabled</span>'+
+            '<input type="checkbox" id="wgEditEnabled" '+(peer.disabled?'':'checked')+'>'+
+          '</label>'+
+        '</div>'+
+        '<div>'+
+          '<label style="font-size:.75rem;color:var(--text-muted);display:block;margin-bottom:.25rem">Address List</label>'+
+          '<select id="wgEditList" class="form-control form-control-sm">'+
+            '<option value="">— None —</option>'+
+            listOptions+
+          '</select>'+
+        '</div>'+
+        '<div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.25rem">'+
+          '<button id="wgEditCancelBtn" class="btn btn-sm btn-outline-secondary">Cancel</button>'+
+          '<button id="wgEditSaveBtn" class="btn btn-sm btn-primary">Save</button>'+
+        '</div>'+
+      '</div>';
+
+    // Wire up buttons
+    $('wgEditCancelBtn').addEventListener('click', closeEditModal);
+    $('wgEditSaveBtn').addEventListener('click', saveEditModal);
+
+    var modal = $('wgEditModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function closeEditModal() {
+    var modal = $('wgEditModal');
+    if (modal) modal.style.display = 'none';
+    _editPeer = null;
+  }
+
+  function saveEditModal() {
+    if (!_editPeer) return;
+    var saveBtn  = $('wgEditSaveBtn');
+    var enabled  = $('wgEditEnabled').checked;
+    var list     = $('wgEditList').value;
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+
+    fetch('/api/wireguard/peers/' + encodeURIComponent(_editPeer.id), {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        disabled:       !enabled,
+        addressList:    list,
+        currentList:    _editPeer.currentList,
+        allowedAddress: _editPeer.allowedAddress,
+      })
+    }).then(function(r){ return r.json(); }).then(function(data){
+      if (data.ok) {
+        closeEditModal();
+        loadWgData();
+      } else {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+        alert('Error: ' + data.error);
+      }
+    }).catch(function(){
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save';
+    });
+  }
+
+  // ── Create modal ──────────────────────────────────────────────────────────
+  function openCreateModal() {
+    // Load WAN IPs for endpoint dropdown
+    fetch('/api/wanips', { credentials: 'include' }).then(function(r){ return r.json(); })
+      .then(function(data){
+        _wanIps = (data.ips || []);
+        var sel = $('wgcEndpoint');
+        if (sel) sel.innerHTML = _wanIps.map(function(ip){
+          return '<option value="'+esc(ip)+'">'+esc(ip)+'</option>';
+        }).join('');
+      });
+
+    // Populate address list dropdown
+    var listSel = $('wgcList');
+    if (listSel) {
+      listSel.innerHTML = '<option value="">— None —</option>' +
+        _wgLists.map(function(l){
+          return '<option value="'+esc(l)+'">'+esc(l)+'</option>';
+        }).join('');
+    }
+
+    // Reset form
+    var nameEl = $('wgcName'); if (nameEl) nameEl.value = '';
+    var ipEl   = $('wgcIp');   if (ipEl)   ipEl.value   = '';
+    var errEl  = $('wgcIpError'); if (errEl) errEl.style.display = 'none';
+    document.querySelectorAll('input[name="wgcTunnel"]').forEach(function(r){ r.checked = r.value === 'full'; });
+    var splitWrap = $('wgcSplitWrap'); if (splitWrap) splitWrap.style.display = 'none';
+    var splitNets = $('wgcSplitNets'); if (splitNets) splitNets.value = '';
+
+    // Show form, hide config
+    var createBody = $('wgCreateBody'); if (createBody) createBody.style.display = '';
+    var configDisp = $('wgConfigDisplay'); if (configDisp) configDisp.style.display = 'none';
+
+    var modal = $('wgCreateModal');
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function closeCreateModal() {
+    var modal = $('wgCreateModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  // Tunnel mode toggle
+  document.querySelectorAll('input[name="wgcTunnel"]').forEach(function(r){
+    r.addEventListener('change', function(){
+      var splitWrap = $('wgcSplitWrap');
+      if (splitWrap) splitWrap.style.display = r.value === 'split' && r.checked ? '' : 'none';
+    });
+  });
+
+  // Create save
+  var createSaveBtn = $('wgCreateSaveBtn');
+  if (createSaveBtn) createSaveBtn.addEventListener('click', function(){
+    var name     = ($('wgcName') || {}).value || '';
+    var ip       = ($('wgcIp') || {}).value || '';
+    var list     = ($('wgcList') || {}).value || '';
+    var endpoint = ($('wgcEndpoint') || {}).value || '';
+    var tunnel   = (document.querySelector('input[name="wgcTunnel"]:checked') || {}).value || 'full';
+    var splitNets = ($('wgcSplitNets') || {}).value || '';
+    var errEl    = $('wgcIpError');
+
+    // Validate
+    if (!name || !ip || !endpoint) { alert('Name, IP and endpoint are required'); return; }
+    var ipRe = /^192\.168\.168\.\d{1,3}$/;
+    if (!ipRe.test(ip)) {
+      if (errEl) { errEl.textContent = 'Must be in 192.168.168.0/24'; errEl.style.display = ''; }
+      return;
+    }
+    if (errEl) errEl.style.display = 'none';
+
+    var clientAllowedAddress = tunnel === 'full' ? '0.0.0.0/0' : splitNets.trim();
+    if (tunnel === 'split' && !clientAllowedAddress) { alert('Enter split tunnel networks'); return; }
+
+    createSaveBtn.disabled = true;
+    createSaveBtn.textContent = 'Creating…';
+
+    fetch('/api/wireguard/peers', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, allowedAddress: ip + '/32', addressList: list, clientEndpoint: endpoint, clientAllowedAddress })
+    }).then(function(r){ return r.json(); }).then(function(data){
+      createSaveBtn.disabled = false;
+      createSaveBtn.textContent = 'Create Peer';
+      if (data.ok) {
+        // Show config
+        _configName = name;
+        var configText = $('wgConfigText');
+        if (configText) configText.value = data.config;
+        var createBody = $('wgCreateBody'); if (createBody) createBody.style.display = 'none';
+        var configDisp = $('wgConfigDisplay'); if (configDisp) configDisp.style.display = '';
+        loadWgData();
+      } else {
+        alert('Error: ' + data.error);
+      }
+    }).catch(function(){
+      createSaveBtn.disabled = false;
+      createSaveBtn.textContent = 'Create Peer';
+      alert('Request failed');
+    });
+  });
+
+  // Config copy/download/done
+  var configCopy = $('wgConfigCopy');
+  if (configCopy) configCopy.addEventListener('click', function(){
+    var t = $('wgConfigText');
+    if (t) { navigator.clipboard.writeText(t.value); configCopy.textContent = 'Copied!'; setTimeout(function(){ configCopy.textContent = 'Copy'; }, 2000); }
+  });
+
+  var configDownload = $('wgConfigDownload');
+  if (configDownload) configDownload.addEventListener('click', function(){
+    var t = $('wgConfigText');
+    if (!t) return;
+    var blob = new Blob([t.value], { type: 'text/plain' });
+    var url  = URL.createObjectURL(blob);
+    var a    = document.createElement('a');
+    a.href     = url;
+    a.download = (_configName || 'wireguard') + '.conf';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  var configDone = $('wgConfigDone');
+  if (configDone) configDone.addEventListener('click', closeCreateModal);
+
+  // Modal close buttons
+  var editClose = $('wgEditClose');
+  if (editClose) editClose.addEventListener('click', closeEditModal);
+  document.addEventListener('click', function(e){
+    if (e.target === $('wgEditModal')) closeEditModal();
+    if (e.target === $('wgCreateModal')) closeCreateModal();
+  });
+
+  var createClose = $('wgCreateClose');
+  if (createClose) createClose.addEventListener('click', closeCreateModal);
+  var createCancel = $('wgCreateCancelBtn');
+  if (createCancel) createCancel.addEventListener('click', closeCreateModal);
+
+  // Add peer button
+  var addBtn = $('wgAddPeerBtn');
+  if (addBtn) addBtn.addEventListener('click', openCreateModal);
+
+  // Re-render edit buttons whenever VPN tiles update
+  socket.on('vpn:update', function(){
+    setTimeout(renderWgTiles, 100);
+  });
+
+  // Load WG data when VPN page is shown
+  document.querySelectorAll('.nav-item[data-page="vpn"]').forEach(function(el){
+    el.addEventListener('click', function(){
+      if (vpnCanWrite) loadWgData();
+    });
+  });
+
+  // Hook into perms — dispatch event from existing /api/me handler
+  // We patch the existing handler to fire a custom event
+  var _origMe = window._onMeLoaded;
+  window._onMeLoaded = function(me){
+    if (_origMe) _origMe(me);
+    var perms = (me && me.permissions) || {};
+    vpnCanWrite = !!(perms.vpn && perms.vpn.write);
+    var addBtn = $('wgAddPeerBtn');
+    if (addBtn) addBtn.style.display = vpnCanWrite ? '' : 'none';
+    if (vpnCanWrite) loadWgData();
+  };
 
 })();
