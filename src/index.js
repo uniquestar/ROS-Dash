@@ -122,6 +122,11 @@ const permissionSchema = z.object({
   canWrite: z.boolean().optional(),
 });
 
+const switchPortVlanSchema = z.object({
+  ifName: z.string().min(1, 'Port name is required'),
+  vlan: z.coerce.number().int().min(1, 'VLAN must be 1-4094').max(4094, 'VLAN must be 1-4094'),
+});
+
 // Serve CSRF token for AJAX requests
 app.get('/api/csrf-token', csrfProtection, (req, res) => {
   res.json({ csrfToken: req.csrfToken() });
@@ -465,6 +470,24 @@ app.get('/api/switches/:name/ports', requireAuth, requirePageRead('switches'), (
   const data = switches.getPortData(req.params.name);
   if (!data) return res.status(404).json({ error: 'Switch not found or not yet polled' });
   res.json(data);
+});
+
+app.post('/api/switches/:name/port-vlan', csrfProtection, requireAuth, requirePageWrite('switches'), async (req, res) => {
+  try {
+    const { ifName, vlan } = switchPortVlanSchema.parse(req.body);
+    const result = await switches.setPortVlan({ switchName: req.params.name, ifName, vlan });
+    res.json({ ok: true, result });
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      return res.status(400).json({ error: e.errors[0].message });
+    }
+    if (e && e.statusCode) {
+      return res.status(e.statusCode).json({ error: getErrorMessage(e) });
+    }
+    const msg = getErrorMessage(e);
+    console.error('[switches] set port vlan failed:', msg);
+    return res.status(500).json({ error: msg });
+  }
 });
 
 // Current user info

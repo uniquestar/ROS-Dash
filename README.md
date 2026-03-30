@@ -53,6 +53,7 @@ ROS-Dash polls Cisco Catalyst switches via SNMPv2c to build a complete port map,
 
 - Polls MAC address tables per VLAN via VLAN-context SNMP (`community@vlan`)
 - VLANs discovered dynamically from Mikrotik VLAN interface config — no hardcoding required
+- Supports per-port access VLAN remap from the Switch Visualiser when `writeCommunity` is configured
 - Collects port status (up/down), PoE delivery status, and connected device descriptions
 - Supports single switches and multi-switch stacks — stack members displayed as separate switch panels
 - Uplink ports included in visualiser (shown in purple), excluded from MAC table reporting
@@ -230,6 +231,9 @@ Switch integration requires SNMPv2c read access on each Cisco Catalyst switch.
 snmp-server community YOUR_COMMUNITY RO
 access-list 10 permit YOUR_MANAGEMENT_SUBNET
 snmp-server community YOUR_COMMUNITY RO 10
+
+# Optional (required for VLAN write operations from ROS-Dash)
+snmp-server community YOUR_COMMUNITY_RW RW 10
 ```
 
 ### switches.json
@@ -243,6 +247,7 @@ Create `switches.json` in the project root (or on the server alongside `.env`). 
       "name": "CoreSwitch",
       "ip": "10.0.0.2",
       "community": "your-community",
+      "writeCommunity": "your-rw-community",
       "mikrotikInterface": "2 - Core",
       "defaultVlan": 100,
       "uplinkPorts": ["Gi1/0/48"]
@@ -256,6 +261,7 @@ Create `switches.json` in the project root (or on the server alongside `.env`). 
 | `name` | Display name shown in the dashboard |
 | `ip` | Management IP of the switch |
 | `community` | SNMPv2c community string |
+| `writeCommunity` | SNMPv2c write community used for port VLAN remap actions (optional; leave empty/omit to disable writes) |
 | `mikrotikInterface` | Mikrotik interface name this switch connects to — used to discover VLANs dynamically |
 | `defaultVlan` | Native/default VLAN on the switch (not reflected in Mikrotik VLAN config) |
 | `uplinkPorts` | Uplink port name(s) — shown in visualiser as uplinks, excluded from MAC table |

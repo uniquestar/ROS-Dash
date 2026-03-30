@@ -20,6 +20,9 @@ const OID_IF_OPER_STATUS = '1.3.6.1.2.1.2.2.1.8';
 const OID_POE_STATUS     = '1.3.6.1.2.1.105.1.1.1.6';
 const OID_POE_POWER      = '1.3.6.1.2.1.105.1.1.1.10';
 const OID_POE_DESCR      = '1.3.6.1.2.1.105.1.1.1.9';
+// OIDs — VLAN discovery + access VLAN write/read
+const OID_DOT1Q_VLAN_NAME = '1.3.6.1.2.1.17.7.1.4.3.1.1';
+const OID_CISCO_ACCESS_VLAN = '1.3.6.1.4.1.9.9.68.1.2.2.1.2';
 
 // Port name regex — only physical switch ports (x/0/x), no card slots
 const PORT_RE = /^(Fi|Gi|Te)\d+\/0\/\d+$/;
@@ -35,6 +38,21 @@ function snmpWalk(session, oid) {
     }, (err) => {
       if (err) reject(err);
       else resolve(results);
+    });
+  });
+}
+
+function snmpSet(session, oid, type, value) {
+  return new Promise((resolve, reject) => {
+    const varbinds = [{ oid, type, value }];
+    session.set(varbinds, (err, responseVarbinds) => {
+      if (err) return reject(err);
+      if (!Array.isArray(responseVarbinds) || !responseVarbinds.length) {
+        return reject(new Error('SNMP set returned no response'));
+      }
+      const vb = responseVarbinds[0];
+      if (snmp.isVarbindError(vb)) return reject(new Error(snmp.varbindError(vb)));
+      resolve(vb);
     });
   });
 }
@@ -77,6 +95,19 @@ class SwitchesCollector extends BaseCollector {
     this._maxPerTick = Math.max(1, parseInt(process.env.SWITCH_MAX_PER_TICK || '2', 10));
     this._delayTimer  = null;
     this._loadConfig();
+  }
+
+  _findSwitch(name) {
+    return this.switches.find((sw) => sw.name === name) || null;
+  }
+
+  _getWriteCommunity(sw) {
+    return String(
+      sw.writeCommunity ||
+      sw.communityWrite ||
+      sw.communityRW ||
+      ''
+    ).trim();
   }
 
   _pickBatch() {
@@ -129,6 +160,24 @@ class SwitchesCollector extends BaseCollector {
         const session = this._createSession(ip, community);
         try {
           return await snmpWalk(session, oid);
+        } finally {
+          session.close();
+        }
+      },
+      {
+        retries: 2,
+        baseDelayMs: 250,
+        shouldRetry: isTransientSnmpError,
+      }
+    );
+  }
+
+  async _set(ip, community, oid, type, value) {
+    return withRetry(
+      async () => {
+        const session = this._createSession(ip, community);
+        try {
+          return await snmpSet(session, oid, type, value);
         } finally {
           session.close();
         }
@@ -202,6 +251,29 @@ class SwitchesCollector extends BaseCollector {
     return poe;
   }
 
+  async _getSwitchVlans(ip, community) {
+    const varbinds = await this._walk(ip, community, OID_DOT1Q_VLAN_NAME);
+    const out = new Set();
+    for (const vb of varbinds) {
+      const vlan = parseInt(vb.oid.split('.').pop(), 10);
+      if (Number.isInteger(vlan) && vlan >= 1 && vlan <= 4094) out.add(vlan);
+    }
+    return Array.from(out).sort((a, b) => a - b);
+  }
+
+  async _getPortAccessVlans(ip, community) {
+    const varbinds = await this._walk(ip, community, OID_CISCO_ACCESS_VLAN);
+    const out = new Map(); // ifIndex -> vlan
+    for (const vb of varbinds) {
+      const ifIndex = parseInt(vb.oid.split('.').pop(), 10);
+      const vlan = parseInt(vb.value, 10);
+      if (Number.isInteger(ifIndex) && Number.isInteger(vlan) && vlan >= 1 && vlan <= 4094) {
+        out.set(ifIndex, vlan);
+      }
+    }
+    return out;
+  }
+
   async _getBridgePortMap(ip, community, vlan) {
     const varbinds = await this._walk(ip, `${community}@${vlan}`, OID_BRIDGE_PORT_IF);
     const map = new Map();
@@ -251,13 +323,15 @@ class SwitchesCollector extends BaseCollector {
     const trunkSet = new Set(sw.uplinkPorts || []);
 
     // Collect base data in parallel where possible
-    const [ifNames, ifOperStatus, poeData] = await Promise.all([
+    const [ifNames, ifOperStatus, poeData, switchVlans, accessVlanByIfIndex] = await Promise.all([
       this._getIfNames(sw.ip, sw.community),
       this._getIfOperStatus(sw.ip, sw.community),
       this._getPoeData(sw.ip, sw.community).catch(e => {
         console.warn(`[switches] ${sw.name} PoE data error:`, getErrorMessage(e));
         return new Map();
       }),
+      this._getSwitchVlans(sw.ip, sw.community).catch(() => []),
+      this._getPortAccessVlans(sw.ip, sw.community).catch(() => new Map()),
     ]);
 
     // Build ifName -> ifIndex reverse map for status lookups
@@ -274,16 +348,28 @@ class SwitchesCollector extends BaseCollector {
     }
 
     // MAC table collection (VLAN-aware)
-    const vlans = this.dhcpNetworks
+    const interfaceRouterVlans = this.dhcpNetworks
+      ? this.dhcpNetworks.getVlansForInterface(sw.mikrotikInterface).filter((v) => Number.isInteger(v) && v >= 1 && v <= 4094)
+      : [];
+    const globalRouterVlans = this.dhcpNetworks && this.dhcpNetworks.getAllVlans
+      ? this.dhcpNetworks.getAllVlans().filter((v) => Number.isInteger(v) && v >= 1 && v <= 4094)
+      : [];
+    const routerVlans = interfaceRouterVlans.length ? interfaceRouterVlans : globalRouterVlans;
+
+    const vlanProbeList = this.dhcpNetworks
       ? [sw.defaultVlan, ...this.dhcpNetworks.getVlansForInterface(sw.mikrotikInterface)].filter(Boolean)
       : [sw.defaultVlan || 100];
 
+    const switchVlanSet = new Set(switchVlans);
+    const successfulProbeVlans = new Set();
+
     const portMacs = new Map(); // ifName -> Map<mac, vlan>
 
-    for (const vlan of vlans) {
+    for (const vlan of vlanProbeList) {
       try {
         const bridgePortMap = await this._getBridgePortMap(sw.ip, sw.community, vlan);
         const macEntries    = await this._getMacTable(sw.ip, sw.community, vlan);
+        successfulProbeVlans.add(vlan);
         for (const { mac, bridgePort } of macEntries) {
           const ifIndex = bridgePortMap.get(bridgePort);
           const ifName  = ifNames.get(ifIndex) || `port${bridgePort}`;
@@ -297,6 +383,29 @@ class SwitchesCollector extends BaseCollector {
         console.warn(`[switches] ${sw.name} VLAN ${vlan} error:`, getErrorMessage(e));
       }
     }
+
+    // Some switch SNMP views do not expose dot1q VLAN table OIDs; fallback to VLANs
+    // that successfully answered VLAN-context bridge/FDB walks.
+    if (!switchVlanSet.size && successfulProbeVlans.size) {
+      for (const vlan of successfulProbeVlans) switchVlanSet.add(vlan);
+    }
+
+    // Build allowed VLAN choices from router/switch overlap plus default/native VLAN.
+    // If overlap cannot be established but one side has incomplete data, fallback to
+    // probe-discovered VLANs so options remain usable.
+    const allowedVlanSet = new Set();
+    if (Number.isInteger(sw.defaultVlan) && sw.defaultVlan >= 1 && sw.defaultVlan <= 4094) {
+      allowedVlanSet.add(sw.defaultVlan);
+    }
+    if (routerVlans.length && switchVlanSet.size) {
+      for (const vlan of routerVlans) {
+        if (switchVlanSet.has(vlan)) allowedVlanSet.add(vlan);
+      }
+    } else {
+      for (const vlan of successfulProbeVlans) allowedVlanSet.add(vlan);
+      for (const vlan of routerVlans) allowedVlanSet.add(vlan);
+    }
+    const vlanOptions = Array.from(allowedVlanSet).sort((a, b) => a - b);
 
     // ── Build MAC table output (existing switches:update format) ────────────
     const macPorts = [];
@@ -328,10 +437,12 @@ class SwitchesCollector extends BaseCollector {
 
       allPorts.push({
         ifName,
+        ifIndex,
         module,
         port,
         status,
         isUplink,
+        accessVlan: accessVlanByIfIndex.get(ifIndex) || null,
         poeStatus:  isUplink ? 'none' : poe.status,
         poePower:   isUplink ? 0 : poe.power,
         poeDescr:   isUplink ? '' : poe.descr,
@@ -342,7 +453,17 @@ class SwitchesCollector extends BaseCollector {
     // Sort by module then port number
     allPorts.sort((a, b) => a.module !== b.module ? a.module - b.module : a.port - b.port);
 
-    return { macPorts, allPorts };
+    return { macPorts, allPorts, vlanOptions, routerVlans, switchVlans };
+  }
+
+  _emitAggregate(polledNames) {
+    const macResults = [];
+    for (const sw of this.switches) {
+      const cached = this._macCache.get(sw.name);
+      if (cached && cached.length) macResults.push(...cached);
+    }
+    this.io.emit('switches:update', { ts: Date.now(), ports: macResults, polled: polledNames || [] });
+    this.state.lastSwitchesTs = Date.now();
   }
 
   async tick() {
@@ -356,7 +477,7 @@ class SwitchesCollector extends BaseCollector {
       if (health.skipUntil > now) continue;
 
       try {
-        const { macPorts, allPorts } = await this._withTimeout(
+        const { macPorts, allPorts, vlanOptions, routerVlans, switchVlans } = await this._withTimeout(
           this.pollSwitch(sw),
           this._switchTimeoutMs,
           '[switches] ' + sw.name
@@ -364,7 +485,15 @@ class SwitchesCollector extends BaseCollector {
         polledNames.push(sw.name);
         this._macCache.set(sw.name, macPorts);
         // Cache port data for API endpoint
-        this._portCache.set(sw.name, { ts: Date.now(), ports: allPorts });
+        this._portCache.set(sw.name, {
+          ts: Date.now(),
+          ports: allPorts,
+          vlanOptions,
+          routerVlans,
+          switchVlans,
+          defaultVlan: sw.defaultVlan || null,
+          writeEnabled: !!this._getWriteCommunity(sw),
+        });
         this._switchHealth.set(sw.name, { failCount: 0, skipUntil: 0 });
       } catch(e) {
         const failCount = (health.failCount || 0) + 1;
@@ -375,15 +504,102 @@ class SwitchesCollector extends BaseCollector {
     }
 
     // Emit latest known state for all switches, even when a subset is polled this tick.
-    const macResults = [];
-    for (const sw of this.switches) {
-      const cached = this._macCache.get(sw.name);
-      if (cached && cached.length) macResults.push(...cached);
+    this._emitAggregate(polledNames);
+  }
+
+  async refreshSwitch(switchName) {
+    const sw = this._findSwitch(switchName);
+    if (!sw) {
+      const err = new Error('Switch not found');
+      err.statusCode = 404;
+      throw err;
     }
 
-    // Emit MAC table update (existing event)
-    this.io.emit('switches:update', { ts: Date.now(), ports: macResults, polled: polledNames });
-    this.state.lastSwitchesTs = Date.now();
+    const { macPorts, allPorts, vlanOptions, routerVlans, switchVlans } = await this._withTimeout(
+      this.pollSwitch(sw),
+      this._switchTimeoutMs,
+      '[switches] ' + sw.name
+    );
+
+    this._macCache.set(sw.name, macPorts);
+    this._portCache.set(sw.name, {
+      ts: Date.now(),
+      ports: allPorts,
+      vlanOptions,
+      routerVlans,
+      switchVlans,
+      defaultVlan: sw.defaultVlan || null,
+      writeEnabled: !!this._getWriteCommunity(sw),
+    });
+    this._switchHealth.set(sw.name, { failCount: 0, skipUntil: 0 });
+    this._emitAggregate([sw.name]);
+    return this._portCache.get(sw.name);
+  }
+
+  async setPortVlan({ switchName, ifName, vlan }) {
+    const sw = this._findSwitch(switchName);
+    if (!sw) {
+      const err = new Error('Switch not found');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const writeCommunity = this._getWriteCommunity(sw);
+    if (!writeCommunity) {
+      const err = new Error('Switch write community is not configured');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const targetVlan = parseInt(vlan, 10);
+    if (!Number.isInteger(targetVlan) || targetVlan < 1 || targetVlan > 4094) {
+      const err = new Error('Invalid VLAN id');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    let cache = this._portCache.get(sw.name);
+    if (!cache) cache = await this.refreshSwitch(sw.name);
+
+    const port = (cache.ports || []).find((p) => p.ifName === ifName);
+    if (!port) {
+      const err = new Error('Port not found for switch');
+      err.statusCode = 404;
+      throw err;
+    }
+    if (port.isUplink) {
+      const err = new Error('Uplink ports cannot be remapped');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const allowed = new Set((cache.vlanOptions || []).map((v) => parseInt(v, 10)));
+    if (!allowed.has(targetVlan)) {
+      const err = new Error('VLAN ' + targetVlan + ' is not available on both router and switch for this stack');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const ifNames = await this._getIfNames(sw.ip, sw.community);
+    let ifIndex = null;
+    for (const [idx, name] of ifNames.entries()) {
+      if (name === ifName) {
+        ifIndex = idx;
+        break;
+      }
+    }
+    if (!ifIndex) {
+      const err = new Error('Port index could not be resolved');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const oid = OID_CISCO_ACCESS_VLAN + '.' + ifIndex;
+    await this._set(sw.ip, writeCommunity, oid, snmp.ObjectType.Integer, targetVlan);
+    console.log(`[switches] ${sw.name} ${ifName} access VLAN set to ${targetVlan}`);
+
+    await this.refreshSwitch(sw.name);
+    return { switch: sw.name, ifName, vlan: targetVlan };
   }
 
   // Returns cached port data for a named switch
@@ -398,7 +614,7 @@ class SwitchesCollector extends BaseCollector {
       const modules = cached
         ? [...new Set(cached.ports.map(p => p.module))]
         : [1];
-      return { name: sw.name, modules };
+      return { name: sw.name, modules, writeEnabled: !!this._getWriteCommunity(sw) };
     });
   }
 

@@ -47,6 +47,7 @@ var pageTitle        = $('pageTitle');
 var ifaceGrid        = $('ifaceGrid');
 var dhcpTable        = $('dhcpTable');
 var dhcpCanWrite     = false;
+var switchCanWrite   = false;
 var dhcpTotalBadge   = $('dhcpTotalBadge');
 var dhcpNavBadge     = $('dhcpNavBadge');
 var dhcpSearch       = $('dhcpSearch');
@@ -1899,6 +1900,7 @@ sendNotif = function(title, body, tag){
       var perms = me.permissions || {};
       if (window._onMeLoaded) window._onMeLoaded(me);
       dhcpCanWrite = !!(perms.dhcp && perms.dhcp.write);
+      switchCanWrite = !!(perms.switches && perms.switches.write);
       if (allLeases && allLeases.length) renderDhcp(allLeases);
 
       // Show/hide nav items based on read permissions
@@ -2106,6 +2108,7 @@ sendNotif = function(title, body, tag){
 // ── Switch Visualiser ─────────────────────────────────────────────────────
 (function(){
   var _swData    = {};   // cache: switchName -> port array
+  var _swMeta    = {};   // cache: switchName -> metadata
   var _swList    = [];   // [{name, modules}]
   var _selSwitch = '';
   var _selModule = 1;
@@ -2150,6 +2153,13 @@ function loadSwitchPorts(name) {
       .then(function(r){ return r.json(); })
       .then(function(data){
         _swData[name] = data.ports;
+        _swMeta[name] = {
+          vlanOptions: data.vlanOptions || [],
+          routerVlans: data.routerVlans || [],
+          switchVlans: data.switchVlans || [],
+          defaultVlan: data.defaultVlan || null,
+          writeEnabled: !!data.writeEnabled,
+        };
         var ts = $('swVisLastUpdate');
         if (ts) ts.textContent = 'Updated ' + new Date(data.ts).toLocaleTimeString();
 
@@ -2315,6 +2325,10 @@ function renderVisualiser(switchName, module) {
 
     var statusColor = p.status === 'up' ? '#22c55e' : '#6b7280';
     var poeColor    = p.poeStatus === 'delivering' ? '#22c55e' : 'var(--text-muted)';
+    var swMeta = _swMeta[_selSwitch] || {};
+    var canWritePortVlan = switchCanWrite && !!swMeta.writeEnabled;
+    var currentAccessVlan = p.accessVlan || ((p.macs && p.macs.length) ? p.macs[0].vlan : null);
+    var vlanOptions = (swMeta.vlanOptions || []).slice().sort(function(a, b){ return a - b; });
 
     var devRows = '';
     if (p.macs && p.macs.length) {
@@ -2332,10 +2346,32 @@ function renderVisualiser(switchName, module) {
       '<table style="width:100%;font-size:.82rem;margin-bottom:1rem">'+
         '<tr><td style="color:var(--text-muted);width:40%">Status</td>'+
             '<td><span style="color:'+statusColor+';font-weight:600">'+p.status.toUpperCase()+'</span></td></tr>'+
+        '<tr><td style="color:var(--text-muted)">Access VLAN</td>'+
+            '<td>'+esc(currentAccessVlan || '—')+'</td></tr>'+
         '<tr><td style="color:var(--text-muted)">PoE</td>'+
             '<td><span style="color:'+poeColor+'">'+p.poeStatus+'</span></td></tr>'+
         (p.poeDescr ? '<tr><td style="color:var(--text-muted)">Device Type</td><td>'+esc(p.poeDescr)+'</td></tr>' : '')+
       '</table>'+
+      (canWritePortVlan
+        ? '<div style="border-top:1px solid var(--border);padding-top:.8rem;margin-bottom:.9rem">'+
+            '<div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.45rem">PORT VLAN MAPPING</div>'+
+            (vlanOptions.length
+              ? '<div style="display:flex;gap:.5rem;align-items:center">'+
+                  '<select id="swPortVlanSelect" class="form-select form-select-sm" style="max-width:180px">'+
+                    vlanOptions.map(function(v){
+                      var selected = String(v) === String(currentAccessVlan) ? ' selected' : '';
+                      return '<option value="'+v+'"'+selected+'>VLAN '+v+'</option>';
+                    }).join('')+
+                  '</select>'+
+                  '<button id="swPortVlanSave" class="btn btn-sm btn-primary">Save</button>'+
+                  '<span id="swPortVlanMsg" style="font-size:.7rem;color:var(--text-muted)"></span>'+
+                '</div>'+
+                '<div style="font-size:.64rem;color:var(--text-muted);margin-top:.4rem">Only VLANs present on both router and switch are listed, plus the configured default VLAN.</div>'
+              : '<div style="font-size:.72rem;color:var(--text-muted)">No eligible VLANs found for this switch stack.</div>'
+            )+
+          '</div>'
+        : ''
+      )+
       (devRows
         ? '<div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.4rem">CONNECTED DEVICES</div>'+
           '<div style="overflow-x:auto"><table class="table table-vcenter mb-0" style="font-size:.78rem">'+
@@ -2344,6 +2380,45 @@ function renderVisualiser(switchName, module) {
           '</table></div>'
         : '<div style="color:var(--text-muted);font-size:.8rem;font-style:italic">No devices detected on this port</div>'
       );
+
+    if (canWritePortVlan && vlanOptions.length) {
+      var saveBtn = $('swPortVlanSave');
+      var sel = $('swPortVlanSelect');
+      var msg = $('swPortVlanMsg');
+      if (saveBtn && sel) {
+        saveBtn.addEventListener('click', function(){
+          var vlan = parseInt(sel.value, 10);
+          if (!vlan) return;
+          saveBtn.disabled = true;
+          saveBtn.textContent = 'Saving…';
+          if (msg) msg.textContent = '';
+
+          secureApiCall('/api/switches/'+encodeURIComponent(_selSwitch)+'/port-vlan', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ifName: p.ifName, vlan: vlan }),
+          }).then(function(r){ return r.json(); }).then(function(data){
+            if (!data || data.error) {
+              if (msg) msg.textContent = (data && data.error) ? data.error : 'Failed';
+              saveBtn.disabled = false;
+              saveBtn.textContent = 'Save';
+              return;
+            }
+            if (msg) msg.textContent = 'Saved';
+            loadSwitchPorts(_selSwitch);
+            setTimeout(function(){
+              saveBtn.disabled = false;
+              saveBtn.textContent = 'Save';
+            }, 400);
+          }).catch(function(){
+            if (msg) msg.textContent = 'Failed';
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save';
+          });
+        });
+      }
+    }
 
     modal.style.display = 'flex';
   }
