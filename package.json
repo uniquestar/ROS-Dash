@@ -9,9 +9,11 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2",
+    "csurf": "^1.11.0",
     "curve25519-js": "^0.0.4",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "express-session": "^1.19.0",
     "geoip-lite": "^1.4.10",
     "ipaddr.js": "^2.2.0",
     "net-snmp": "^3.26.1",

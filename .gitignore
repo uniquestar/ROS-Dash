@@ -2,6 +2,9 @@
 .env
 users.json
 
+# Local development files
+CODE_REVIEW.md
+
 # Node modules - too large for git
 node_modules/
 
