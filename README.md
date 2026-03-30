@@ -5,6 +5,8 @@
 
 ROS-Dash connects directly to the RouterOS API over a persistent binary TCP connection, streaming live data to the browser via Socket.IO. No page refreshes. No agents. Built-in authentication, granular per-user permissions, and Cisco switch integration with a graphical port visualiser.
 
+Collector lifecycle logic is being standardized through a shared base implementation in [src/collectors/BaseCollector.js](src/collectors/BaseCollector.js) to reduce duplicate timer/reconnect/error code across modules.
+
 Forked and significantly enhanced from [MikroDash](https://github.com/SecOps-7/MikroDash) by SecOps-7.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
