@@ -108,10 +108,13 @@ vim .env
 
 Create the database and your first admin user:
 
+Create the database and your first admin user:
 ```bash
 npm install
 node src/add-user.js admin yourpassword admin
 ```
+
+> **Note:** The database file (`ros-dash.db`) must exist on the host before starting the container. The `add-user.js` script will create it automatically. Ensure `DB_PATH=/app/ros-dash.db` is set in your `.env`.
 
 Build and run:
 
@@ -133,6 +136,8 @@ Set `DB_PATH=/app/ros-dash.db` in your `.env` to ensure the database is written 
 - Health check: `http://your-server:3081/healthz`
 
 ### Updating
+
+> **Important:** The build script checkpoints the SQLite WAL before stopping the container to ensure user data persists across rebuilds. If managing users manually via `docker exec`, always run the build script to deploy rather than restarting the container directly — this ensures the checkpoint runs correctly.
 
 ```bash
 git pull
@@ -223,16 +228,22 @@ For stacked switches, configure each stack as a single entry — ROS-Dash detect
 
 ## User Management
 
-Add users via the CLI:
-
+Add users via the CLI (works both locally and inside the container):
 ```bash
 node src/add-user.js <username> <password> [role]
 # role: admin or viewer (default: viewer)
 ```
 
+To manage users on the Docker server:
+```bash
+sudo docker exec -it ros-dash node src/add-user.js admin yourpassword admin
+```
+
 Or via the web UI at the Users page (requires users:write permission).
 
 Permissions are configured per user per page via the Users page. Changes take effect on the user's next login.
+
+> **Note:** User data is stored in `ros-dash.db` using SQLite WAL mode. The app checkpoints the WAL on shutdown to ensure data persists. Always use the build script to redeploy rather than manually restarting the container.
 
 ---
 
