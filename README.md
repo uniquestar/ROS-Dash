@@ -6,6 +6,7 @@
 ROS-Dash connects directly to the RouterOS API over a persistent binary TCP connection, streaming live data to the browser via Socket.IO. No page refreshes. No agents. Built-in authentication, granular per-user permissions, and Cisco switch integration with a graphical port visualiser.
 
 Collector lifecycle logic is standardized through a shared base implementation in [src/collectors/BaseCollector.js](src/collectors/BaseCollector.js), now used across all collector modules to reduce duplicate timer/reconnect/error code.
+Runtime and API error handling are normalized through [src/util/errors.js](src/util/errors.js) so collector logs and HTTP error responses stay consistent.
 
 Forked and significantly enhanced from [MikroDash](https://github.com/SecOps-7/MikroDash) by SecOps-7.
 
@@ -88,6 +89,7 @@ ROS-Dash includes built-in authentication, CSRF protection, and is suitable for 
 - **Hardened secrets** — `DASH_SECRET` is required at startup (no weak fallback); session tokens use HMAC-SHA256 signing
 - **Session validation** — 8-hour token expiry, automatic invalidation on server restart, per-page access control
 - **Protected WebSocket** — unauthenticated socket connections rejected at handshake
+- **Consistent error responses** — shared error formatting utility prevents malformed `500` payloads and `[object Object]` log output
 
 **Recommended setup:**
 - Deploy behind Nginx Proxy Manager or similar with a valid SSL certificate
@@ -369,6 +371,8 @@ ROS_DEBUG=false
 | Switches | `SWITCH_POLL_MS` (30s default) | Batched MAC tables, port status, PoE status and device descriptions |
 
 All RouterOS collectors run **concurrently** on a single persistent TCP connection.
+
+Collector and server error formatting is centralized via [src/util/errors.js](src/util/errors.js), used by collectors, RouterOS client, retry logic, DB migration paths, and API catch blocks.
 
 ---
 
