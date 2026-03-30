@@ -7,6 +7,7 @@ const snmp = require('net-snmp');
 const fs   = require('fs');
 const path = require('path');
 const BaseCollector = require('./BaseCollector');
+const { withRetry, defaultShouldRetry } = require('../util/retry');
 
 // OIDs — MAC table
 const OID_IF_NAME        = '1.3.6.1.2.1.31.1.1.1.1';
@@ -53,6 +54,11 @@ function parseIfName(ifName) {
   return { module: parseInt(m[1]), port: parseInt(m[2]) };
 }
 
+function isTransientSnmpError(err) {
+  const msg = String(err && err.message ? err.message : err).toLowerCase();
+  return defaultShouldRetry(err) || msg.includes('requestfailederror') || msg.includes('request timed out');
+}
+
 class SwitchesCollector extends BaseCollector {
   constructor({ ros, io, pollMs, dhcpLeases, arp, dhcpNetworks, state }) {
     super({ name: 'switches', ros, pollMs: pollMs || 120000, state });
@@ -88,12 +94,21 @@ class SwitchesCollector extends BaseCollector {
   }
 
   async _walk(ip, community, oid) {
-    const session = this._createSession(ip, community);
-    try {
-      return await snmpWalk(session, oid);
-    } finally {
-      session.close();
-    }
+    return withRetry(
+      async () => {
+        const session = this._createSession(ip, community);
+        try {
+          return await snmpWalk(session, oid);
+        } finally {
+          session.close();
+        }
+      },
+      {
+        retries: 2,
+        baseDelayMs: 250,
+        shouldRetry: isTransientSnmpError,
+      }
+    );
   }
 
   async _getIfNames(ip, community) {
@@ -158,28 +173,18 @@ class SwitchesCollector extends BaseCollector {
   }
 
   async _getBridgePortMap(ip, community, vlan) {
-    const session = this._createSession(ip, `${community}@${vlan}`);
-    try {
-      const varbinds = await snmpWalk(session, OID_BRIDGE_PORT_IF);
-      const map = new Map();
-      for (const vb of varbinds) {
-        const bridgePort = parseInt(vb.oid.split('.').pop());
-        map.set(bridgePort, vb.value);
-      }
-      return map;
-    } finally {
-      session.close();
+    const varbinds = await this._walk(ip, `${community}@${vlan}`, OID_BRIDGE_PORT_IF);
+    const map = new Map();
+    for (const vb of varbinds) {
+      const bridgePort = parseInt(vb.oid.split('.').pop());
+      map.set(bridgePort, vb.value);
     }
+    return map;
   }
 
   async _getMacTable(ip, community, vlan) {
-    const session1 = this._createSession(ip, `${community}@${vlan}`);
-    const macVbs = await snmpWalk(session1, OID_FDB_MAC);
-    session1.close();
-
-    const session2 = this._createSession(ip, `${community}@${vlan}`);
-    const portVbs = await snmpWalk(session2, OID_FDB_PORT);
-    session2.close();
+    const macVbs = await this._walk(ip, `${community}@${vlan}`, OID_FDB_MAC);
+    const portVbs = await this._walk(ip, `${community}@${vlan}`, OID_FDB_PORT);
 
     const portMap = new Map();
     for (const vb of portVbs) {

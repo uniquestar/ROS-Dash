@@ -7,6 +7,13 @@ try { geoip = require('geoip-lite'); } catch(e) { console.warn('[connections] ge
  */
 const BaseCollector = require('./BaseCollector');
 const { isInCidrs } = require('../util/ip');
+const { withRetry, defaultShouldRetry } = require('../util/retry');
+
+function isTransientRosError(err) {
+  const msg = String(err && err.message ? err.message : err).toLowerCase();
+  if (msg.includes('no such item')) return false;
+  return defaultShouldRetry(err);
+}
 
 function makeDestKey(c) {
   const dst   = c['dst-address'] || c.dst || '';
@@ -52,7 +59,17 @@ class ConnectionsCollector extends BaseCollector {
     const lanCidrs = this.dhcpNetworks.getLanCidrs();
 
     // node-routeros: write() is concurrent-safe, doesn't block streams
-    const conns = await this.ros.write('/ip/firewall/connection/print');
+    const conns = await withRetry(
+      () => this.ros.write('/ip/firewall/connection/print'),
+      {
+        retries: 2,
+        baseDelayMs: 150,
+        shouldRetry: isTransientRosError,
+        onRetry: (err, meta) => {
+          console.warn(`[connections] retry ${meta.attempt}/${meta.retries} after error:`, err && err.message ? err.message : err);
+        },
+      }
+    );
     const srcCounts = new Map();
     const dstCounts = new Map();
     const curIds    = new Set();
