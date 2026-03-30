@@ -1,4 +1,5 @@
 const BaseCollector = require('./BaseCollector');
+const { getErrorMessage } = require('../util/errors');
 
 class FirewallCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state, topN }) {
@@ -82,7 +83,7 @@ class FirewallCollector extends BaseCollector {
     try {
       await this.tick();
     } catch (e) {
-      this.state.lastFirewallErr = String(e && e.message ? e.message : e);
+      this.state.lastFirewallErr = getErrorMessage(e);
       console.error('[firewall]', this.state.lastFirewallErr);
     }
   }

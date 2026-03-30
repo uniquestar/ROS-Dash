@@ -8,6 +8,7 @@ const fs   = require('fs');
 const path = require('path');
 const BaseCollector = require('./BaseCollector');
 const { withRetry, defaultShouldRetry } = require('../util/retry');
+const { getErrorMessage } = require('../util/errors');
 
 // OIDs — MAC table
 const OID_IF_NAME        = '1.3.6.1.2.1.31.1.1.1.1';
@@ -55,7 +56,7 @@ function parseIfName(ifName) {
 }
 
 function isTransientSnmpError(err) {
-  const msg = String(err && err.message ? err.message : err).toLowerCase();
+  const msg = getErrorMessage(err).toLowerCase();
   return defaultShouldRetry(err) || msg.includes('requestfailederror') || msg.includes('request timed out');
 }
 
@@ -110,7 +111,7 @@ class SwitchesCollector extends BaseCollector {
       this.switches = cfg.switches || [];
       console.log(`[switches] loaded ${this.switches.length} switch(es)`);
     } catch(e) {
-      console.error('[switches] failed to parse switches.json:', e.message);
+      console.error('[switches] failed to parse switches.json:', getErrorMessage(e));
     }
   }
 
@@ -254,7 +255,7 @@ class SwitchesCollector extends BaseCollector {
       this._getIfNames(sw.ip, sw.community),
       this._getIfOperStatus(sw.ip, sw.community),
       this._getPoeData(sw.ip, sw.community).catch(e => {
-        console.warn(`[switches] ${sw.name} PoE data error:`, e.message);
+        console.warn(`[switches] ${sw.name} PoE data error:`, getErrorMessage(e));
         return new Map();
       }),
     ]);
@@ -293,7 +294,7 @@ class SwitchesCollector extends BaseCollector {
           }
         }
       } catch(e) {
-        console.warn(`[switches] ${sw.name} VLAN ${vlan} error:`, e.message);
+        console.warn(`[switches] ${sw.name} VLAN ${vlan} error:`, getErrorMessage(e));
       }
     }
 
@@ -369,7 +370,7 @@ class SwitchesCollector extends BaseCollector {
         const failCount = (health.failCount || 0) + 1;
         const backoffMs = Math.min(5 * 60 * 1000, 5000 * Math.pow(2, failCount - 1));
         this._switchHealth.set(sw.name, { failCount, skipUntil: now + backoffMs });
-        console.error(`[switches] ${sw.name} poll failed (fail=${failCount}, backoff=${backoffMs}ms):`, e.message);
+        console.error(`[switches] ${sw.name} poll failed (fail=${failCount}, backoff=${backoffMs}ms):`, getErrorMessage(e));
       }
     }
 
@@ -405,7 +406,7 @@ class SwitchesCollector extends BaseCollector {
     try {
       await this.tick();
     } catch (e) {
-      console.error('[switches]', e && e.message ? e.message : e);
+      console.error('[switches]', getErrorMessage(e));
     }
   }
 

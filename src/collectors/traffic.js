@@ -9,6 +9,7 @@
  */
 const RingBuffer = require('../util/ringbuffer');
 const BaseCollector = require('./BaseCollector');
+const { getErrorMessage } = require('../util/errors');
 
 const POLL_MS = 1000; // 1 second
 
@@ -108,7 +109,7 @@ class TrafficCollector extends BaseCollector {
         this.state.lastTrafficErr = null;
 
       } catch (e) {
-        this.state.lastTrafficErr = e && e.message ? e.message : String(e);
+        this.state.lastTrafficErr = getErrorMessage(e);
         // Don't log every error — only first occurrence
         if (!this._hadTrafficErr) {
           console.error('[traffic] poll error on', ifName, ':', this.state.lastTrafficErr);

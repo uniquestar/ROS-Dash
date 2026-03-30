@@ -1,5 +1,6 @@
 // Parse RouterOS relative time string e.g. "2m30s", "1h5m", "30s" into ms
 const BaseCollector = require('./BaseCollector');
+const { getErrorMessage } = require('../util/errors');
 
 function parseHandshake(str) {
   if (!str || str === 'never') return 0;
@@ -78,7 +79,7 @@ class VpnCollector extends BaseCollector {
     try {
       await this.tick();
     } catch (e) {
-      this.state.lastVpnErr = String(e && e.message ? e.message : e);
+      this.state.lastVpnErr = getErrorMessage(e);
       console.error('[vpn]', this.state.lastVpnErr);
     }
   }

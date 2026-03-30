@@ -7,6 +7,8 @@
  * - onDisconnected() — (optional) called when disconnected; use for cleanup
  */
 
+const { getErrorMessage } = require('../util/errors');
+
 class BaseCollector {
   constructor({ name, ros, pollMs = 5000, state } = {}) {
     this.name = name || this.constructor.name;
@@ -111,7 +113,7 @@ class BaseCollector {
     try {
       await this.tick();
     } catch (e) {
-      const msg = e && e.message ? e.message : String(e);
+      const msg = getErrorMessage(e);
       console.error(`[${this.name}] tick error:`, msg);
       this.state[`last${this.name}Err`] = msg;
     }

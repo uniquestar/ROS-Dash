@@ -10,6 +10,7 @@
 
 const { RouterOSAPI } = require('node-routeros');
 const EventEmitter = require('events');
+const { getErrorMessage } = require('../util/errors');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 class ROS extends EventEmitter {
@@ -47,7 +48,7 @@ class ROS extends EventEmitter {
         this.conn = this._buildConn();
 
         this.conn.on('error', (err) => {
-          console.error('[ROS] error:', err && err.message ? err.message : err);
+          console.error('[ROS] error:', getErrorMessage(err));
           this.connected = false;
           this.emit('error', err);
         });
@@ -71,7 +72,7 @@ class ROS extends EventEmitter {
 
       } catch (e) {
         this.connected = false;
-        console.error('[ROS] connect failed:', e && e.message ? e.message : e);
+        console.error('[ROS] connect failed:', getErrorMessage(e));
         this.emit('error', e);
       }
 
