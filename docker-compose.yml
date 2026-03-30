@@ -5,4 +5,5 @@ services:
     network_mode: host
     volumes:
       - /var/snap/docker/common/ros-dash/users.json:/app/users.json
+      - /var/snap/docker/common/ros-dash/ros-dash.db:/app/ros-dash.db
     restart: unless-stopped
