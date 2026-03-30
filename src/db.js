@@ -198,6 +198,9 @@ function deleteUser(username) {
 
 // ── Permission operations ────────────────────────────────────────────────────
 
+/**
+ * Return per-page permission map for a user id.
+ */
 function getUserPermissions(userId) {
   const rows = _db.prepare(
     'SELECT page_key, can_read, can_write FROM permissions WHERE user_id = ?'
@@ -212,6 +215,9 @@ function getUserPermissions(userId) {
   return perms;
 }
 
+/**
+ * Upsert read/write permissions for a user-page pair.
+ */
 function setPermission(userId, pageKey, canRead, canWrite) {
   _db.prepare(`
     INSERT INTO permissions (user_id, page_key, can_read, can_write)
@@ -224,7 +230,10 @@ function getPages() {
   return _db.prepare('SELECT * FROM pages ORDER BY sort_order').all();
 }
 
-  function getTokenGeneration() {
+/**
+ * Session generation value used to invalidate old tokens after restart.
+ */
+function getTokenGeneration() {
   return _db.prepare('SELECT value FROM meta WHERE key = ?').get('token_generation')?.value || '1';
 }
 
