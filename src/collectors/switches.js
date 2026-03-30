@@ -69,8 +69,37 @@ class SwitchesCollector extends BaseCollector {
     this.switches     = [];
     // Cache latest port data per switch name for API endpoint
     this._portCache   = new Map();
+    this._macCache    = new Map();
+    this._cursor      = 0;
+    this._switchHealth = new Map(); // name -> { failCount, skipUntil }
+    this._switchTimeoutMs = parseInt(process.env.SWITCH_POLL_TIMEOUT_MS || '15000', 10);
+    this._maxPerTick = Math.max(1, parseInt(process.env.SWITCH_MAX_PER_TICK || '2', 10));
     this._delayTimer  = null;
     this._loadConfig();
+  }
+
+  _pickBatch() {
+    if (!this.switches.length) return [];
+    const size = Math.min(this._maxPerTick, this.switches.length);
+    const batch = [];
+    for (let i = 0; i < size; i++) {
+      const idx = (this._cursor + i) % this.switches.length;
+      batch.push(this.switches[idx]);
+    }
+    this._cursor = (this._cursor + size) % this.switches.length;
+    return batch;
+  }
+
+  async _withTimeout(promise, timeoutMs, label) {
+    let timer = null;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(label + ' timed out after ' + timeoutMs + 'ms')), timeoutMs);
+    });
+    try {
+      return await Promise.race([promise, timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   _loadConfig() {
@@ -317,19 +346,42 @@ class SwitchesCollector extends BaseCollector {
 
   async tick() {
     if (!this.switches.length) return;
-    const macResults = [];
-    for (const sw of this.switches) {
+    const now = Date.now();
+    const batch = this._pickBatch();
+    const polledNames = [];
+
+    for (const sw of batch) {
+      const health = this._switchHealth.get(sw.name) || { failCount: 0, skipUntil: 0 };
+      if (health.skipUntil > now) continue;
+
       try {
-        const { macPorts, allPorts } = await this.pollSwitch(sw);
-        macResults.push(...macPorts);
+        const { macPorts, allPorts } = await this._withTimeout(
+          this.pollSwitch(sw),
+          this._switchTimeoutMs,
+          '[switches] ' + sw.name
+        );
+        polledNames.push(sw.name);
+        this._macCache.set(sw.name, macPorts);
         // Cache port data for API endpoint
         this._portCache.set(sw.name, { ts: Date.now(), ports: allPorts });
+        this._switchHealth.set(sw.name, { failCount: 0, skipUntil: 0 });
       } catch(e) {
-        console.error(`[switches] ${sw.name} poll failed:`, e.message);
+        const failCount = (health.failCount || 0) + 1;
+        const backoffMs = Math.min(5 * 60 * 1000, 5000 * Math.pow(2, failCount - 1));
+        this._switchHealth.set(sw.name, { failCount, skipUntil: now + backoffMs });
+        console.error(`[switches] ${sw.name} poll failed (fail=${failCount}, backoff=${backoffMs}ms):`, e.message);
       }
     }
+
+    // Emit latest known state for all switches, even when a subset is polled this tick.
+    const macResults = [];
+    for (const sw of this.switches) {
+      const cached = this._macCache.get(sw.name);
+      if (cached && cached.length) macResults.push(...cached);
+    }
+
     // Emit MAC table update (existing event)
-    this.io.emit('switches:update', { ts: Date.now(), ports: macResults });
+    this.io.emit('switches:update', { ts: Date.now(), ports: macResults, polled: polledNames });
     this.state.lastSwitchesTs = Date.now();
   }
 
