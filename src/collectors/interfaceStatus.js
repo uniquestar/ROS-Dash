@@ -1,10 +1,11 @@
-class InterfaceStatusCollector {
+const BaseCollector = require('./BaseCollector');
+
+class InterfaceStatusCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state }) {
-    this.ros = ros; this.io = io; this.pollMs = pollMs || 5000;
-    this.state = state; this.timer = null;
+    super({ name: 'ifstatus', ros, pollMs: pollMs || 5000, state });
+    this.io = io;
   }
   async tick() {
-    if (!this.ros.connected) return;
     const [ifRes, addrRes] = await Promise.allSettled([
       this.ros.write("/interface/print", ["=stats="]),
       this.ros.write("/ip/address/print"),
@@ -32,13 +33,6 @@ class InterfaceStatusCollector {
     }));
     this.io.emit("ifstatus:update", { ts: Date.now(), interfaces });
     this.state.lastIfStatusTs = Date.now();
-  }
-  start() {
-    const run = async () => { try { await this.tick(); } catch(e) { console.error("[ifstatus]", e && e.message ? e.message : e); } };
-    run();
-    this.timer = setInterval(run, this.pollMs);
-    this.ros.on("close",     () => { if (this.timer) { clearInterval(this.timer); this.timer = null; } });
-    this.ros.on("connected", () => { this.timer = this.timer || setInterval(run, this.pollMs); run(); });
   }
 }
 module.exports = InterfaceStatusCollector;

@@ -1,4 +1,6 @@
 // Parse RouterOS relative time string e.g. "2m30s", "1h5m", "30s" into ms
+const BaseCollector = require('./BaseCollector');
+
 function parseHandshake(str) {
   if (!str || str === 'never') return 0;
   let ms = 0;
@@ -8,13 +10,10 @@ function parseHandshake(str) {
   return Date.now() - ms;
 }
 
-class VpnCollector {
+class VpnCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state }) {
-    this.ros    = ros;
-    this.io     = io;
-    this.pollMs = pollMs || 10000;
-    this.state  = state;
-    this.timer  = null;
+    super({ name: 'vpn', ros, pollMs: pollMs || 10000, state });
+    this.io = io;
     this._debuggedOnce = false;
     this._prev = new Map(); // key -> {rx, tx, ts}
   }
@@ -24,7 +23,6 @@ class VpnCollector {
   }
 
   async tick() {
-    if (!this.ros.connected) return;
     const wgPeers = await this.safeGet('/interface/wireguard/peers/print');
     if (!this._debuggedOnce && wgPeers.length > 0) {
       console.log(`[vpn] ${wgPeers.length} WireGuard peer(s) found on interfaces: ${[...new Set(wgPeers.map(p => p.interface).filter(Boolean))].join(', ') || '?'}`);
@@ -75,17 +73,14 @@ class VpnCollector {
     delete this.state.lastVpnErr;
   }
 
-  start() {
-    const run = async () => {
-      try { await this.tick(); } catch (e) {
-        this.state.lastVpnErr = String(e && e.message ? e.message : e);
-        console.error('[vpn]', this.state.lastVpnErr);
-      }
-    };
-    run();
-    this.timer = setInterval(run, this.pollMs);
-    this.ros.on('close',     () => { if (this.timer) { clearInterval(this.timer); this.timer = null; } });
-    this.ros.on('connected', () => { this.timer = this.timer || setInterval(run, this.pollMs); run(); });
+  async _runTick() {
+    if (this.ros && this.ros.connected === false) return;
+    try {
+      await this.tick();
+    } catch (e) {
+      this.state.lastVpnErr = String(e && e.message ? e.message : e);
+      console.error('[vpn]', this.state.lastVpnErr);
+    }
   }
 }
 module.exports = VpnCollector;

@@ -1,13 +1,12 @@
-class WirelessCollector {
+const BaseCollector = require('./BaseCollector');
+
+class WirelessCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state, dhcpLeases, arp }) {
-    this.ros = ros;
+    super({ name: 'wireless', ros, pollMs: pollMs || 5000, state });
     this.io = io;
-    this.pollMs = pollMs || 5000;
-    this.state = state;
     this.dhcpLeases = dhcpLeases;
     this.arp = arp;
     this.mode = null;
-    this.timer = null;
   }
 
   resolveName(mac) {
@@ -17,7 +16,6 @@ class WirelessCollector {
   }
 
   async tick() {
-    if (!this.ros.connected) return;
     let clients = [], detectedMode = this.mode;
 
     // Probe both APIs concurrently — node-routeros handles it fine
@@ -68,17 +66,18 @@ class WirelessCollector {
     delete this.state.lastWirelessErr;
   }
 
-  start() {
-    const run = async () => {
-      try { await this.tick(); } catch (e) {
-        this.state.lastWirelessErr = String(e && e.message ? e.message : e);
-        console.error('[wireless]', this.state.lastWirelessErr);
-      }
-    };
-    run();
-    this.timer = setInterval(run, this.pollMs);
-    this.ros.on('close', () => { if (this.timer) { clearInterval(this.timer); this.timer = null; } });
-    this.ros.on('connected', () => { this.mode = null; this.timer = this.timer || setInterval(run, this.pollMs); run(); });
+  async onConnected() {
+    this.mode = null;
+  }
+
+  async _runTick() {
+    if (this.ros && this.ros.connected === false) return;
+    try {
+      await this.tick();
+    } catch (e) {
+      this.state.lastWirelessErr = String(e && e.message ? e.message : e);
+      console.error('[wireless]', this.state.lastWirelessErr);
+    }
   }
 }
 

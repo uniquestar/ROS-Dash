@@ -2,13 +2,12 @@
  * IP Neighbours collector — polls /ip/neighbor/print
  * Discovers adjacent devices via CDP/LLDP
  */
-class NeighborsCollector {
+const BaseCollector = require('./BaseCollector');
+
+class NeighborsCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state }) {
-    this.ros    = ros;
-    this.io     = io;
-    this.pollMs = pollMs || 60000;
-    this.state  = state;
-    this.timer  = null;
+    super({ name: 'neighbors', ros, pollMs: pollMs || 60000, state });
+    this.io = io;
   }
 
   _cleanVersion(ver) {
@@ -21,7 +20,6 @@ class NeighborsCollector {
   }
 
   async tick() {
-    if (!this.ros.connected) return;
     const items = await this.ros.write('/ip/neighbor/print');
     const neighbors = (items || []).map(n => ({
       interface: n.interface  || '',
@@ -32,18 +30,6 @@ class NeighborsCollector {
     }));
     this.io.emit('neighbors:update', { ts: Date.now(), neighbors });
     this.state.lastNeighborsTs = Date.now();
-  }
-
-  start() {
-    const run = async () => {
-      try { await this.tick(); } catch (e) {
-        console.error('[neighbors]', e && e.message ? e.message : e);
-      }
-    };
-    run();
-    this.timer = setInterval(run, this.pollMs);
-    this.ros.on('close',     () => { if (this.timer) { clearInterval(this.timer); this.timer = null; } });
-    this.ros.on('connected', () => { this.timer = this.timer || setInterval(run, this.pollMs); run(); });
   }
 }
 

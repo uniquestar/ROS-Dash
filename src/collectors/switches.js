@@ -6,6 +6,7 @@
 const snmp = require('net-snmp');
 const fs   = require('fs');
 const path = require('path');
+const BaseCollector = require('./BaseCollector');
 
 // OIDs — MAC table
 const OID_IF_NAME        = '1.3.6.1.2.1.31.1.1.1.1';
@@ -52,18 +53,17 @@ function parseIfName(ifName) {
   return { module: parseInt(m[1]), port: parseInt(m[2]) };
 }
 
-class SwitchesCollector {
-  constructor({ io, pollMs, dhcpLeases, arp, dhcpNetworks, state }) {
+class SwitchesCollector extends BaseCollector {
+  constructor({ ros, io, pollMs, dhcpLeases, arp, dhcpNetworks, state }) {
+    super({ name: 'switches', ros, pollMs: pollMs || 120000, state });
     this.io           = io;
-    this.pollMs       = pollMs || 120000;
     this.dhcpLeases   = dhcpLeases;
     this.arp          = arp;
     this.dhcpNetworks = dhcpNetworks;
-    this.state        = state;
     this.switches     = [];
-    this.timer        = null;
     // Cache latest port data per switch name for API endpoint
     this._portCache   = new Map();
+    this._delayTimer  = null;
     this._loadConfig();
   }
 
@@ -344,17 +344,32 @@ class SwitchesCollector {
     });
   }
 
-  start() {
-    if (!this.switches.length) return;
-    const run = async () => {
-      try { await this.tick(); } catch(e) {
-        console.error('[switches]', e.message);
-      }
-    };
-    setTimeout(() => {
-      run();
-      this.timer = setInterval(run, this.pollMs);
+  async _runTick() {
+    try {
+      await this.tick();
+    } catch (e) {
+      console.error('[switches]', e && e.message ? e.message : e);
+    }
+  }
+
+  async start() {
+    if (this.isRunning || !this.switches.length) return;
+    this.isRunning = true;
+    this._delayTimer = setTimeout(() => {
+      if (!this.isRunning) return;
+      this._runTick();
+      this._startTick();
     }, 15000);
+  }
+
+  stop() {
+    if (!this.isRunning) return;
+    this.isRunning = false;
+    if (this._delayTimer) {
+      clearTimeout(this._delayTimer);
+      this._delayTimer = null;
+    }
+    this._stopTick();
   }
 }
 

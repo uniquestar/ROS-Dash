@@ -1,12 +1,11 @@
-class FirewallCollector {
+const BaseCollector = require('./BaseCollector');
+
+class FirewallCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state, topN }) {
-    this.ros = ros;
+    super({ name: 'firewall', ros, pollMs: pollMs || 10000, state });
     this.io = io;
-    this.pollMs = pollMs || 10000;
-    this.state = state;
     this.topN = topN || 15;
     this.prevCounts = new Map();
-    this.timer = null;
   }
 
   async safeGet(cmd) {
@@ -26,7 +25,6 @@ class FirewallCollector {
   }
 
   async tick() {
-    if (!this.ros.connected) return;
     // All three fire concurrently
     const [filter, nat, mangle] = await Promise.all([
       this.safeGet('/ip/firewall/filter/print'),
@@ -42,17 +40,14 @@ class FirewallCollector {
     delete this.state.lastFirewallErr;
   }
 
-  start() {
-    const run = async () => {
-      try { await this.tick(); } catch (e) {
-        this.state.lastFirewallErr = String(e && e.message ? e.message : e);
-        console.error('[firewall]', this.state.lastFirewallErr);
-      }
-    };
-    run();
-    this.timer = setInterval(run, this.pollMs);
-    this.ros.on('close', () => { if (this.timer) { clearInterval(this.timer); this.timer = null; } });
-    this.ros.on('connected', () => { this.timer = this.timer || setInterval(run, this.pollMs); run(); });
+  async _runTick() {
+    if (this.ros && this.ros.connected === false) return;
+    try {
+      await this.tick();
+    } catch (e) {
+      this.state.lastFirewallErr = String(e && e.message ? e.message : e);
+      console.error('[firewall]', this.state.lastFirewallErr);
+    }
   }
 }
 

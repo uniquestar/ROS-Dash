@@ -167,7 +167,7 @@ class ConnectionsCollector extends BaseCollector {
       // RouterOS races: connections expire between list and fetch — not a real error
       if (msg.includes('no such item')) return;
       console.error(`[${this.name}] tick error:`, msg);
-      this.state[`last${this.name}Err`] = msg;
+      this.state.lastConnsErr = msg;
     }
   }
 }
