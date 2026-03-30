@@ -2237,6 +2237,7 @@ function renderVisualiser(switchName, module) {
       if (p.isUplink) { lines.push('Uplink port'); return lines.join('\n'); }
       if (p.poeStatus === 'delivering') {
         lines.push('PoE: delivering');
+        if (p.poePower && p.poePower > 0) lines.push('PoE Power: ' + p.poePower + ' W');
         if (p.poeDescr) lines.push('Device: '+p.poeDescr);
       }
       if (p.macs && p.macs.length) {
@@ -2373,6 +2374,9 @@ function renderVisualiser(switchName, module) {
             '<td>'+esc(currentAccessVlan || '—')+'</td></tr>'+
         '<tr><td style="color:var(--text-muted)">PoE</td>'+
             '<td><span style="color:'+poeColor+'">'+p.poeStatus+'</span></td></tr>'+
+        ((p.poePower && p.poePower > 0)
+          ? '<tr><td style="color:var(--text-muted)">PoE Power</td><td>'+esc(String(p.poePower))+' W</td></tr>'
+          : '')+
         (p.poeDescr ? '<tr><td style="color:var(--text-muted)">Device Type</td><td>'+esc(p.poeDescr)+'</td></tr>' : '')+
       '</table>'+
       (canWritePortAdmin
