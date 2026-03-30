@@ -8,6 +8,7 @@
  *   write() + =once= on a 1-second interval. This is the correct approach.
  */
 const RingBuffer = require('../util/ringbuffer');
+const BaseCollector = require('./BaseCollector');
 
 const POLL_MS = 1000; // 1 second
 
@@ -27,12 +28,11 @@ function bpsToMbps(bps) {
   return +((bps || 0) / 1_000_000).toFixed(3);
 }
 
-class TrafficCollector {
+class TrafficCollector extends BaseCollector {
   constructor({ ros, io, defaultIf, historyMinutes, state }) {
-    this.ros       = ros;
-    this.io        = io;
+    super({ name: 'traffic', ros, pollMs: 0, state });
+    this.io = io;
     this.defaultIf = defaultIf;
-    this.state     = state;
     this.maxPoints = Math.max(60, historyMinutes * 60);
     this.hist          = new Map();   // ifName -> RingBuffer
     this.subscriptions = new Map();   // socketId -> ifName
@@ -130,22 +130,43 @@ class TrafficCollector {
   }
 
   start() {
+    if (this.isRunning) return;
+    this.isRunning = true;
     this._ensureHistory(this.defaultIf);
     this._startPoll(this.defaultIf);
 
-    this.ros.on('connected', () => {
-      console.log('[traffic] reconnected — restarting polls');
-      this._stopAll();
-      this._ensureHistory(this.defaultIf);
-      this._startPoll(this.defaultIf);
-      // Re-poll any currently subscribed interfaces
-      const subscribed = new Set(this.subscriptions.values());
-      for (const ifName of subscribed) {
-        if (ifName !== this.defaultIf) this._startPoll(ifName);
-      }
-    });
+    this._boundOnConnected = () => this.onConnected();
+    this._boundOnClose = () => this.onDisconnected();
+    this.ros.on('connected', this._boundOnConnected);
+    this.ros.on('close', this._boundOnClose);
+  }
 
-    this.ros.on('close', () => this._stopAll());
+  stop() {
+    if (!this.isRunning) return;
+    this.isRunning = false;
+    this._stopAll();
+    if (this.ros && typeof this.ros.off === 'function') {
+      if (this._boundOnConnected) this.ros.off('connected', this._boundOnConnected);
+      if (this._boundOnClose) this.ros.off('close', this._boundOnClose);
+    }
+    this._boundOnConnected = null;
+    this._boundOnClose = null;
+  }
+
+  async onConnected() {
+    console.log('[traffic] reconnected — restarting polls');
+    this._stopAll();
+    this._ensureHistory(this.defaultIf);
+    this._startPoll(this.defaultIf);
+    // Re-poll any currently subscribed interfaces
+    const subscribed = new Set(this.subscriptions.values());
+    for (const ifName of subscribed) {
+      if (ifName !== this.defaultIf) this._startPoll(ifName);
+    }
+  }
+
+  async onDisconnected() {
+    this._stopAll();
   }
 }
 

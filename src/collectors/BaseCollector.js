@@ -15,6 +15,8 @@ class BaseCollector {
     this.state = state || {};
     this.timer = null;
     this.isRunning = false;
+    this._boundOnConnected = null;
+    this._boundOnClose = null;
   }
 
   /**
@@ -53,9 +55,13 @@ class BaseCollector {
     // Start polling interval
     this._startTick();
 
-    // Listen for reconnection
-    this.ros.on('connected', () => this._onConnected());
-    this.ros.on('close', () => this._onDisconnected());
+    // Listen for reconnection when a ROS client is available
+    if (this.ros && typeof this.ros.on === 'function') {
+      this._boundOnConnected = () => this._onConnected();
+      this._boundOnClose = () => this._onDisconnected();
+      this.ros.on('connected', this._boundOnConnected);
+      this.ros.on('close', this._boundOnClose);
+    }
   }
 
   /**
@@ -65,8 +71,15 @@ class BaseCollector {
     if (!this.isRunning) return;
     this.isRunning = false;
     this._stopTick();
-    this.ros.removeAllListeners('connected');
-    this.ros.removeAllListeners('close');
+    if (this.ros && typeof this.ros.off === 'function') {
+      if (this._boundOnConnected) this.ros.off('connected', this._boundOnConnected);
+      if (this._boundOnClose) this.ros.off('close', this._boundOnClose);
+    } else if (this.ros && typeof this.ros.removeListener === 'function') {
+      if (this._boundOnConnected) this.ros.removeListener('connected', this._boundOnConnected);
+      if (this._boundOnClose) this.ros.removeListener('close', this._boundOnClose);
+    }
+    this._boundOnConnected = null;
+    this._boundOnClose = null;
   }
 
   /**
@@ -74,7 +87,8 @@ class BaseCollector {
    */
   _startTick() {
     if (this.timer) return; // already running
-    if (!this.ros.connected) return;
+    if (!this.pollMs || this.pollMs <= 0) return;
+    if (this.ros && this.ros.connected === false) return;
 
     this.timer = setInterval(() => this._runTick(), this.pollMs);
   }
@@ -93,7 +107,7 @@ class BaseCollector {
    * Internal: wrapper around tick() with error handling.
    */
   async _runTick() {
-    if (!this.ros.connected) return;
+    if (this.ros && this.ros.connected === false) return;
     try {
       await this.tick();
     } catch (e) {

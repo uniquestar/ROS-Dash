@@ -3,12 +3,17 @@
  * RouterOS sends each new log entry instantly as it's written.
  * Zero polling, zero seen-set needed — we just receive and forward.
  */
-class LogsCollector {
+const BaseCollector = require('./BaseCollector');
+
+class LogsCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state }) {
-    this.ros = ros;
+    super({ name: 'logs', ros, pollMs: 0, state });
     this.io = io;
-    this.state = state;
     this.stream = null;
+  }
+
+  async tick() {
+    this._startStream();
   }
 
   _classify(topicsRaw) {
@@ -60,13 +65,13 @@ class LogsCollector {
     }
   }
 
-  start() {
+  async onConnected() {
+    this._stopStream();
     this._startStream();
-    this.ros.on('connected', () => {
-      this._stopStream();
-      this._startStream();
-    });
-    this.ros.on('close', () => this._stopStream());
+  }
+
+  async onDisconnected() {
+    this._stopStream();
   }
 }
 

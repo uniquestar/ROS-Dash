@@ -3,15 +3,18 @@
  * Replaces the Kid Control approach which requires a Mikrotik feature
  * that may not be enabled.
  */
-class TopTalkersCollector {
+const BaseCollector = require('./BaseCollector');
+
+class TopTalkersCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state, topN }) {
-    this.ros    = ros;
-    this.io     = io;
-    this.pollMs = pollMs;
-    this.state  = state;
+    super({ name: 'talkers', ros, pollMs: 0, state });
+    this.io = io;
     this.topN   = topN || 5;
-    this.timer  = null;
     this._lastDevices = [];
+  }
+
+  async tick() {
+    // No polling needed — fed by ConnectionsCollector
   }
 
   // Called directly by ConnectionsCollector with topSources data
@@ -29,8 +32,9 @@ class TopTalkersCollector {
     delete this.state.lastTalkersErr;
   }
 
-  start() {
-    // No polling needed — fed by ConnectionsCollector
+  async start() {
+    if (this.isRunning) return;
+    this.isRunning = true;
     this.state.lastTalkersTs = Date.now();
   }
 }

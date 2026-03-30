@@ -1,17 +1,15 @@
-class PingCollector {
+const BaseCollector = require('./BaseCollector');
+
+class PingCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state, target }) {
-    this.ros    = ros;
-    this.io     = io;
-    this.pollMs = pollMs || 10000;
-    this.state  = state;
+    super({ name: 'ping', ros, pollMs: pollMs || 10000, state });
+    this.io = io;
     this.target = target || '1.1.1.1';
-    this.timer  = null;
     this.history = []; // {ts, rtt, loss}
     this.MAX_HISTORY = 60;
   }
 
   async tick() {
-    if (!this.ros.connected) return;
     let rtt = null, loss = 100;
     try {
       const results = await this.ros.write('/tool/ping', [
@@ -49,16 +47,6 @@ class PingCollector {
 
     this.io.emit('ping:update', { target: this.target, rtt, loss, history: this.history });
     this.state.lastPingTs = Date.now();
-  }
-
-  start() {
-    const run = async () => {
-      try { await this.tick(); } catch (e) { console.error('[ping]', e && e.message ? e.message : e); }
-    };
-    run();
-    this.timer = setInterval(run, this.pollMs);
-    this.ros.on('close',     () => { if (this.timer) { clearInterval(this.timer); this.timer = null; } });
-    this.ros.on('connected', () => { this.timer = this.timer || setInterval(run, this.pollMs); run(); });
   }
 }
 

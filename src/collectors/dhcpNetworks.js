@@ -1,27 +1,24 @@
 const ipaddr = require('ipaddr.js');
+const BaseCollector = require('./BaseCollector');
 
 function ipInCidr(ip, cidr) {
   try { return ipaddr.parse(ip).match(ipaddr.parseCIDR(cidr)); } catch { return false; }
 }
 
-class DhcpNetworksCollector {
+class DhcpNetworksCollector extends BaseCollector {
   constructor({ ros, io, pollMs, dhcpLeases, state }) {
-    this.ros = ros;
+    super({ name: 'dhcpNetworks', ros, pollMs, state });
     this.io = io;
-    this.pollMs = pollMs;
     this.dhcpLeases = dhcpLeases;
-    this.state = state;
     this.lanCidrs = [];
     this.networks = [];
     this.vlanMap  = new Map(); // ifaceName -> [vlanIds]
-    this.timer = null;
   }
 
   getLanCidrs() { return this.lanCidrs; }
   getVlansForInterface(ifaceName) { return this.vlanMap.get(ifaceName) || []; }
   
   async tick() {
-    if (!this.ros.connected) return;
     const [nets, addrs, vlans] = await Promise.allSettled([
       this.ros.write('/ip/dhcp-server/network/print'),
       this.ros.write('/ip/address/print'),
@@ -64,14 +61,6 @@ class DhcpNetworksCollector {
     if (this.state) this.state.lastWanIp = wanIp;
     this.io.emit('lan:overview', { ts: Date.now(), lanCidrs: this.lanCidrs, networks: this.networks, wanIp });
     this.state.lastNetworksTs = Date.now();
-  }
-
-  start() {
-    const run = async () => { try { await this.tick(); } catch (e) { console.error('[dhcp-networks]', e && e.message ? e.message : e); } };
-    run();
-    this.timer = setInterval(run, this.pollMs);
-    this.ros.on('close', () => { if (this.timer) { clearInterval(this.timer); this.timer = null; } });
-    this.ros.on('connected', () => { this.timer = this.timer || setInterval(run, this.pollMs); run(); });
   }
 }
 

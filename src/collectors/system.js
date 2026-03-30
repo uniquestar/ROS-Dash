@@ -26,7 +26,8 @@ class SystemCollector extends BaseCollector {
       }
     } catch (e) {
       this.state.lastSystemErr = String(e && e.message ? e.message : e);
-      throw e;
+      console.error('[system]', this.state.lastSystemErr);
+      return;
     }
 
     const cpuLoad  = parseInt(r['cpu-load']       || '0', 10);
