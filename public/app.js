@@ -81,6 +81,45 @@ if(themeToggle) themeToggle.addEventListener('click', function(){
   applyTheme(cur==='light'?'dark':'light');
 });
 
+// ── CSRF Protection ───────────────────────────────────────────────────────
+var csrfToken = null;
+function getCsrfToken() {
+  return new Promise(function(resolve) {
+    if (csrfToken) {
+      resolve(csrfToken);
+      return;
+    }
+    fetch('/api/csrf-token', { credentials: 'include' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        csrfToken = data.csrfToken;
+        resolve(csrfToken);
+      })
+      .catch(function(err) {
+        console.error('Failed to get CSRF token:', err);
+        resolve(null);
+      });
+  });
+}
+
+// Enhanced fetch that adds CSRF token for non-GET requests
+function secureApiCall(url, options) {
+  options = options || {};
+  var method = (options.method || 'GET').toUpperCase();
+  
+  if (method === 'GET' || method === 'HEAD') {
+    return fetch(url, options);
+  }
+  
+  return getCsrfToken().then(function(token) {
+    var headers = options.headers || {};
+    if (token) {
+      headers['X-CSRF-Token'] = token;
+    }
+    return fetch(url, Object.assign({}, options, { headers: headers }));
+  });
+}
+
 // ── Page router ────────────────────────────────────────────────────────────
 var PAGE_TITLES = {dashboard:'Dashboard',connections:'Connections',wireless:'Wireless',interfaces:'Interfaces',dhcp:'DHCP',firewall:'Firewall',vpn:'VPN',logs:'Logs',users:'User Management'};
 var PAGE_KEYS   = ['dashboard','wireless','interfaces','dhcp','vpn','connections','firewall','logs','info','users'];
@@ -752,7 +791,7 @@ if(!filtered.length){dhcpTable.innerHTML='<tr><td colspan="8" class="empty-state
       var ip = btn.dataset.ip;
       btn.disabled = true;
       btn.textContent = '…';
-      fetch('/api/dhcp/make-static', {
+      secureApiCall('/api/dhcp/make-static', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -781,7 +820,7 @@ if(!filtered.length){dhcpTable.innerHTML='<tr><td colspan="8" class="empty-state
       var ip = btn.dataset.ip;
       btn.disabled = true;
       btn.textContent = '…';
-      fetch('/api/dhcp/remove-static', {
+      secureApiCall('/api/dhcp/remove-static', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -1993,7 +2032,7 @@ sendNotif = function(title, body, tag){
           if (writeCb) writeCb.checked = perm.write;
 
           // Save to server
-          fetch('/api/permissions', {
+          secureApiCall('/api/permissions', {
             method: 'POST', credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, pageKey, canRead: perm.read, canWrite: perm.write })
@@ -2017,7 +2056,7 @@ sendNotif = function(title, body, tag){
     var password = $('newPassword').value;
     var errEl    = $('addUserError');
     if (!username || !password) { errEl.textContent='Username and password required'; errEl.style.display='block'; return; }
-    fetch('/api/users', {
+    secureApiCall('/api/users', {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
@@ -2045,7 +2084,7 @@ sendNotif = function(title, body, tag){
     var password = $('chgPwdNew').value;
     var errEl    = $('chgPwdError');
     if (!password) { errEl.textContent='Password required'; errEl.style.display='block'; return; }
-    fetch('/api/users/'+username, {
+    secureApiCall('/api/users/'+username, {
       method: 'PATCH', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password })
@@ -2058,7 +2097,7 @@ sendNotif = function(title, body, tag){
   // Delete user
   window._delUser = function(username) {
     if (!confirm('Delete user "'+username+'"? This cannot be undone.')) return;
-    fetch('/api/users/'+username, { method: 'DELETE', credentials: 'include' })
+    secureApiCall('/api/users/'+username, { method: 'DELETE', credentials: 'include' })
       .then(function(){ loadUsers(); });
   };
 
@@ -2502,7 +2541,7 @@ function renderVisualiser(switchName, module) {
     saveBtn.disabled = true;
     saveBtn.textContent = 'Saving…';
 
-    fetch('/api/wireguard/peers/' + encodeURIComponent(_editPeer.id), {
+    secureApiCall('/api/wireguard/peers/' + encodeURIComponent(_editPeer.id), {
       method: 'PATCH',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -2603,7 +2642,7 @@ function renderVisualiser(switchName, module) {
     createSaveBtn.disabled = true;
     createSaveBtn.textContent = 'Creating…';
 
-    fetch('/api/wireguard/peers', {
+    secureApiCall('/api/wireguard/peers', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },

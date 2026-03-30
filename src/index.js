@@ -39,7 +39,25 @@ const app = express();
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-// Login route — public, no auth required
+// Session middleware for CSRF token storage
+const session = require('express-session');
+app.use(session({
+  secret: process.env.DASH_SECRET || 'fallback-secret',
+  resave: false,
+  saveUninitialized: true,
+  cookie: { secure: false, httpOnly: true, sameSite: 'strict', maxAge: 24*60*60*1000 },
+}));
+
+// CSRF protection middleware (will be applied selectively)
+const csrf = require('csurf');
+const csrfProtection = csrf({ cookie: false });
+
+// Serve CSRF token for AJAX requests (no CSRF check needed here)
+app.get('/api/csrf-token', (req, res) => {
+  res.json({ csrfToken: req.csrfToken() });
+});
+
+// Login route — public, no CSRF check required for initial login
 app.post('/login', (req, res) => {
   const { username, password } = req.body;
 const authedUser = validateUser(username, password);
@@ -59,7 +77,7 @@ app.get('/api/wanips', requireAuth, requirePageRead('vpn'), (req, res) => {
 });
 
 // Make DHCP lease static
-app.post('/api/dhcp/make-static', requireAuth, requirePageWrite('dhcp'), async (req, res) => {
+app.post('/api/dhcp/make-static', csrfProtection, requireAuth, requirePageWrite('dhcp'), async (req, res) => {
   const { ip } = req.body;
   if (!ip) return res.status(400).json({ error: 'ip required' });
   const lease = dhcpLeases.getLeaseByIP(ip);
@@ -77,7 +95,7 @@ app.post('/api/dhcp/make-static', requireAuth, requirePageWrite('dhcp'), async (
 });
 
 // Remove static DHCP lease
-app.post('/api/dhcp/remove-static', requireAuth, requirePageWrite('dhcp'), async (req, res) => {
+app.post('/api/dhcp/remove-static', csrfProtection, requireAuth, requirePageWrite('dhcp'), async (req, res) => {
   const { ip } = req.body;
   if (!ip) return res.status(400).json({ error: 'ip required' });
   const lease = dhcpLeases.getLeaseByIP(ip);
@@ -170,7 +188,7 @@ app.get('/api/wireguard/used-ips', requireAuth, requirePageRead('vpn'), async (r
 });
 
 // Create new WireGuard peer
-app.post('/api/wireguard/peers', requireAuth, requirePageWrite('vpn'), async (req, res) => {
+app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('vpn'), async (req, res) => {
   const { name, allowedAddress, addressList, clientEndpoint, clientAllowedAddress } = req.body;
   if (!name || !allowedAddress || !clientEndpoint) {
     return res.status(400).json({ error: 'name, allowedAddress and clientEndpoint are required' });
@@ -239,7 +257,7 @@ app.post('/api/wireguard/peers', requireAuth, requirePageWrite('vpn'), async (re
 });
 
 // Update WireGuard peer (enable/disable, address list change)
-app.patch('/api/wireguard/peers/:id', requireAuth, requirePageWrite('vpn'), async (req, res) => {
+app.patch('/api/wireguard/peers/:id', csrfProtection, requireAuth, requirePageWrite('vpn'), async (req, res) => {
   const { id } = req.params;
   const { disabled, addressList, currentList, allowedAddress } = req.body;
   try {
@@ -386,7 +404,7 @@ app.get('/api/users', requireAuth, requirePageRead('users'), (_req, res) => {
 });
 
 // Add user — requires users:write
-app.post('/api/users', requireAuth, requirePageWrite('users'), (req, res) => {
+app.post('/api/users', csrfProtection, requireAuth, requirePageWrite('users'), (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
   if (getUser(username)) return res.status(409).json({ error: 'User already exists' });
@@ -395,7 +413,7 @@ app.post('/api/users', requireAuth, requirePageWrite('users'), (req, res) => {
 });
 
 // Change password — requires users:write
-app.patch('/api/users/:username', requireAuth, requirePageWrite('users'), (req, res) => {
+app.patch('/api/users/:username', csrfProtection, requireAuth, requirePageWrite('users'), (req, res) => {
   const { username } = req.params;
   const { password } = req.body;
   if (!getUser(username)) return res.status(404).json({ error: 'User not found' });
@@ -404,7 +422,7 @@ app.patch('/api/users/:username', requireAuth, requirePageWrite('users'), (req, 
 });
 
 // Delete user — requires users:write
-app.delete('/api/users/:username', requireAuth, requirePageWrite('users'), (req, res) => {
+app.delete('/api/users/:username', csrfProtection, requireAuth, requirePageWrite('users'), (req, res) => {
   const { username } = req.params;
   if (!getUser(username)) return res.status(404).json({ error: 'User not found' });
   deleteUser(username);
@@ -417,7 +435,7 @@ app.get('/api/pages', requireAuth, requirePageRead('users'), (_req, res) => {
 });
 
 // Set permission — requires users:write
-app.post('/api/permissions', requireAuth, requirePageWrite('users'), (req, res) => {
+app.post('/api/permissions', csrfProtection, requireAuth, requirePageWrite('users'), (req, res) => {
   const { username, pageKey, canRead, canWrite } = req.body;
   const user = getUser(username);
   if (!user) return res.status(404).json({ error: 'User not found' });

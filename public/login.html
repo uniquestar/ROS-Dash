@@ -125,7 +125,8 @@
 
     <div class="error" id="err">Incorrect username or password</div>
 
-    <form method="POST" action="/login">
+    <form method="POST" action="/login" id="loginForm">
+      <input type="hidden" name="_csrf" id="csrfToken" value="">
       <div class="field">
         <label for="username">Username</label>
         <input type="text" id="username" name="username" autocomplete="username" autofocus required>
@@ -139,6 +140,14 @@
   </div>
 
   <script>
+    // Fetch CSRF token and populate form
+    fetch('/api/csrf-token', { credentials: 'include' })
+      .then(r => r.json())
+      .then(data => {
+        document.getElementById('csrfToken').value = data.csrfToken;
+      })
+      .catch(err => console.error('Failed to fetch CSRF token:', err));
+
     if (new URLSearchParams(location.search).get('error')) {
       document.getElementById('err').classList.add('show');
     }
