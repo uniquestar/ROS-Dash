@@ -9,20 +9,22 @@ class SystemCollector extends BaseCollector {
   }
 
   async tick() {
-    let r = {}, h = [], u = {};
+    let resourceRow = {};
+    let healthRows = [];
+    let updateRow = {};
     try {
       const [resResult, healthResult, updateResult] = await Promise.allSettled([
         this.ros.write('/system/resource/print'),
         this.ros.write('/system/health/print'),
         this.ros.write('/system/package/update/print'),
       ]);
-      r = resResult.status    === 'fulfilled' && resResult.value    && resResult.value[0]    ? resResult.value[0]    : {};
-      h = healthResult.status === 'fulfilled' && Array.isArray(healthResult.value)           ? healthResult.value    : [];
-      u = updateResult.status === 'fulfilled' && updateResult.value && updateResult.value[0] ? updateResult.value[0] : {};
+      resourceRow = resResult.status === 'fulfilled' && resResult.value && resResult.value[0] ? resResult.value[0] : {};
+      healthRows = healthResult.status === 'fulfilled' && Array.isArray(healthResult.value) ? healthResult.value : [];
+      updateRow = updateResult.status === 'fulfilled' && updateResult.value && updateResult.value[0] ? updateResult.value[0] : {};
 
       // One-time log so we can see exactly what fields RouterOS returns
-      if (!this._loggedUpdateFields && Object.keys(u).length) {
-        console.log('[system] package/update fields:', JSON.stringify(u));
+      if (!this._loggedUpdateFields && Object.keys(updateRow).length) {
+        console.log('[system] package/update fields:', JSON.stringify(updateRow));
         this._loggedUpdateFields = true;
       }
     } catch (e) {
@@ -31,17 +33,17 @@ class SystemCollector extends BaseCollector {
       return;
     }
 
-    const cpuLoad  = parseInt(r['cpu-load']       || '0', 10);
-    const totalMem = parseInt(r['total-memory']    || '0', 10);
-    const freeMem  = parseInt(r['free-memory']     || '0', 10);
+    const cpuLoad  = parseInt(resourceRow['cpu-load'] || '0', 10);
+    const totalMem = parseInt(resourceRow['total-memory'] || '0', 10);
+    const freeMem  = parseInt(resourceRow['free-memory'] || '0', 10);
     const usedMem  = totalMem - freeMem;
     const memPct   = totalMem > 0 ? Math.round((usedMem / totalMem) * 100) : 0;
-    const totalHdd = parseInt(r['total-hdd-space'] || '0', 10);
-    const freeHdd  = parseInt(r['free-hdd-space']  || '0', 10);
+    const totalHdd = parseInt(resourceRow['total-hdd-space'] || '0', 10);
+    const freeHdd  = parseInt(resourceRow['free-hdd-space'] || '0', 10);
     const hddPct   = totalHdd > 0 ? Math.round(((totalHdd - freeHdd) / totalHdd) * 100) : 0;
 
     let tempC = null;
-    for (const item of h) {
+    for (const item of healthRows) {
       if ((item.name || '').toLowerCase().includes('temperature')) {
         const v = parseFloat(item.value || '');
         if (!isNaN(v)) { tempC = v; break; }
@@ -50,22 +52,22 @@ class SystemCollector extends BaseCollector {
 
     // /system/resource/print returns version as "7.21.3 (stable)" — strip the channel suffix
     // /system/package/update/print returns clean "7.21.3" — compare the base version only
-    const installed       = r.version || '';
+    const installed       = resourceRow.version || '';
     const installedBase   = installed.replace(/\s*\(.*\)/, '').trim();
-    const latestVersion   = u['latest-version'] || '';
-    const updateStatus    = u['status'] || '';
+    const latestVersion   = updateRow['latest-version'] || '';
+    const updateStatus    = updateRow['status'] || '';
     // Prefer the router's own status string: "System is already up to date" vs "New version is available"
     const updateAvailable = latestVersion
       ? (latestVersion !== installedBase)
       : updateStatus.toLowerCase().includes('new version');
 
     this.io.emit('system:update', {
-      ts: Date.now(), uptimeRaw: r.uptime || '', cpuLoad, memPct, usedMem, totalMem,
+      ts: Date.now(), uptimeRaw: resourceRow.uptime || '', cpuLoad, memPct, usedMem, totalMem,
       hddPct, totalHdd, freeHdd, version: installed,
       latestVersion, updateAvailable: !!updateAvailable, updateStatus,
-      boardName: r['board-name'] || r['platform'] || '',
-      cpuCount: parseInt(r['cpu-count'] || '1', 10),
-      cpuFreq:  parseInt(r['cpu-frequency'] || '0', 10),
+      boardName: resourceRow['board-name'] || resourceRow['platform'] || '',
+      cpuCount: parseInt(resourceRow['cpu-count'] || '1', 10),
+      cpuFreq:  parseInt(resourceRow['cpu-frequency'] || '0', 10),
       tempC,
     });
     this.state.lastSystemTs = Date.now();

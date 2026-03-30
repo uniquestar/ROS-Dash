@@ -50,7 +50,7 @@ function verifyToken(token) {
   const expected = crypto.createHmac('sha256', DASH_SECRET).update(payload).digest('hex');
   if (sig !== expected) return null;
   try {
-const decoded = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+    const decoded = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
     if (Date.now() >= decoded.expiry) return null;
     if (decoded.gen !== getTokenGeneration()) return null;
     return decoded;
@@ -72,12 +72,19 @@ function getTokenUser(req) {
   return decoded ? decoded.user : null;
 }
 
+/**
+ * Express auth gate for browser routes/API routes.
+ * Redirects unauthenticated users to login to preserve current UX.
+ */
 function requireAuth(req, res, next) {
   const token = getTokenFromRequest(req);
   if (verifyToken(token)) return next();
   res.redirect('/login.html');
 }
 
+/**
+ * Socket.IO auth gate based on the same signed cookie token.
+ */
 function requireAuthSocket(socket, next) {
   const cookie = socket.handshake.headers.cookie || '';
   const match  = cookie.match(/(?:^|;\s*)rosdash_token=([^;]+)/);
@@ -86,6 +93,9 @@ function requireAuthSocket(socket, next) {
   next(new Error('Unauthorised'));
 }
 
+/**
+ * Per-page read authorization middleware factory.
+ */
 function requirePageRead(pageKey) {
   return function(req, res, next) {
     const user = getTokenUser(req);
@@ -96,6 +106,9 @@ function requirePageRead(pageKey) {
   };
 }
 
+/**
+ * Per-page write authorization middleware factory.
+ */
 function requirePageWrite(pageKey) {
   return function(req, res, next) {
     const user = getTokenUser(req);
