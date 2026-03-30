@@ -153,6 +153,23 @@ docker run -d \
   ros-dash
 ```
 
+### Server Deployment Script
+
+For automated deployment on the server, maintain a build script at a path outside the repo (e.g. `/opt/ros-dash/build-and-run.sh`). The script should:
+
+1. Checkpoint the SQLite WAL before stopping the container
+2. Pull the latest code from GitHub
+3. Copy `.env` and `switches.json` into the repo directory
+4. Build the Docker image
+5. Stop and remove the old container
+6. Start the new container with bind mounts for `ros-dash.db` and `switches.json`
+7. Verify the database has users after startup
+
+Key points:
+- Never store `.env`, `switches.json`, or `ros-dash.db` in the repo
+- Always mount `ros-dash.db` as a bind mount — never bake it into the image
+- The WAL checkpoint before stop is critical for user data persistence
+
 ---
 
 ## RouterOS Setup
