@@ -633,7 +633,7 @@ const ifStatus     = new InterfaceStatusCollector({ros,io, pollMs:parseInt(proce
 const ping         = new PingCollector({ros,io, pollMs:parseInt(process.env.PING_POLL_MS||'10000',10), state, target:process.env.PING_TARGET||'1.1.1.1'});
 const wanIps       = new WanIpsCollector({ ros, io, pollMs: 30000, state, wanIface: DEFAULT_IF });
 const neighbors    = new NeighborsCollector({ ros, io, pollMs: 60000, state });
-const switches     = new SwitchesCollector({ ros, io, pollMs: 10000, dhcpLeases, arp, dhcpNetworks, state });
+const switches     = new SwitchesCollector({ ros, io, pollMs: parseInt(process.env.SWITCH_POLL_MS || '30000', 10), dhcpLeases, arp, dhcpNetworks, state });
 const routes       = new RoutesCollector({ ros, io, pollMs: 30000, state });
 const addressLists = new AddressListsCollector({ ros, io, pollMs: 60000, state });
 

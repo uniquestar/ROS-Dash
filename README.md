@@ -125,6 +125,9 @@ vim .env
 - `WG_ALLOWED_SUBNET` — allowed subnet used for peer address validation (default `192.168.168.0/24`)
 - `WG_CLIENT_PREFIX` — client address prefix length (default `24`)
 - `WG_CLIENT_DNS` — DNS server pushed to client configs (default `192.168.168.1`)
+- `SWITCH_POLL_MS` — switch poll cadence in milliseconds (default `30000`)
+- `SWITCH_MAX_PER_TICK` — max switches polled per cycle (default `2`)
+- `SWITCH_POLL_TIMEOUT_MS` — per-switch timeout before backoff (default `15000`)
 
 Create the database and your first admin user:
 ```bash
@@ -316,6 +319,11 @@ VPN_POLL_MS=10000
 FIREWALL_POLL_MS=10000
 IFSTATUS_POLL_MS=5000
 PING_POLL_MS=10000
+SWITCH_POLL_MS=30000
+
+# Switch polling safety knobs for older stacks
+SWITCH_MAX_PER_TICK=2
+SWITCH_POLL_TIMEOUT_MS=15000
 
 # Ping target for latency monitor
 PING_TARGET=1.1.1.1
@@ -358,7 +366,7 @@ ROS_DEBUG=false
 ### Polled — Cisco Switches (SNMP)
 | Collector | Interval | Data |
 |---|---|---|
-| Switches | 120s | MAC tables, port status, PoE status and device descriptions |
+| Switches | `SWITCH_POLL_MS` (30s default) | Batched MAC tables, port status, PoE status and device descriptions |
 
 All RouterOS collectors run **concurrently** on a single persistent TCP connection.
 
