@@ -21,6 +21,8 @@ const OID_IF_OPER_STATUS = '1.3.6.1.2.1.2.2.1.8';
 const OID_POE_STATUS     = '1.3.6.1.2.1.105.1.1.1.6';
 const OID_POE_POWER      = '1.3.6.1.2.1.105.1.1.1.10';
 const OID_POE_DESCR      = '1.3.6.1.2.1.105.1.1.1.9';
+const OID_CISCO_POE_DRAW = '1.3.6.1.4.1.9.9.402.1.2.1.8';
+const OID_CISCO_POE_CONSUMPTION = '1.3.6.1.4.1.9.9.402.1.2.1.9';
 // OIDs — VLAN discovery + access VLAN write/read
 const OID_DOT1Q_VLAN_NAME = '1.3.6.1.2.1.17.7.1.4.3.1.1';
 const OID_CISCO_ACCESS_VLAN = '1.3.6.1.4.1.9.9.68.1.2.2.1.2';
@@ -223,11 +225,16 @@ class SwitchesCollector extends BaseCollector {
   }
 
   // PoE OIDs use module.port indexing — returns Map keyed as "module:port"
-  async _getPoeData(ip, community) {
-    const [statusVbs, powerVbs, descrVbs] = await Promise.all([
+  async _getPoeData(ip, community, opts = {}) {
+    const configuredDivisor = Number(opts.poePowerDivisor);
+    const powerDivisor = Number.isFinite(configuredDivisor) && configuredDivisor > 0 ? configuredDivisor : 1000;
+
+    const [statusVbs, powerVbs, descrVbs, ciscoDrawVbs, ciscoPowerVbs] = await Promise.all([
       this._walk(ip, community, OID_POE_STATUS),
       this._walk(ip, community, OID_POE_POWER),
       this._walk(ip, community, OID_POE_DESCR),
+      this._walk(ip, community, OID_CISCO_POE_DRAW).catch(() => []),
+      this._walk(ip, community, OID_CISCO_POE_CONSUMPTION).catch(() => []),
     ]);
 
     const poe = new Map(); // "module:port" -> { status, power, descr }
@@ -248,7 +255,49 @@ class SwitchesCollector extends BaseCollector {
       const module = parseInt(parts.pop());
       const key    = `${module}:${port}`;
       if (!poe.has(key)) poe.set(key, { status: 'unknown', power: 0, descr: '' });
-      poe.get(key).power = vb.value || 0;
+      const n = parseFloat(vb.value || '0');
+      poe.get(key).power = Number.isFinite(n) ? n : 0;
+    }
+
+    // Prefer Cisco live draw metric when present. On many Catalyst models this
+    // is reported in tenths of watts.
+    for (const vb of ciscoDrawVbs) {
+      const parts = vb.oid.split('.');
+      const port = parseInt(parts.pop(), 10);
+      const module = parseInt(parts.pop(), 10);
+      const key = `${module}:${port}`;
+      if (!poe.has(key)) poe.set(key, { status: 'unknown', power: 0, descr: '' });
+
+      const raw = parseFloat(vb.value || '0');
+      if (!Number.isFinite(raw) || raw <= 0) continue;
+
+      let watts = raw;
+      if (raw >= 1000) watts = raw / 1000;
+      else if (raw >= 10) watts = raw / 10;
+      poe.get(key).power = Math.round(watts * 10) / 10;
+    }
+
+    // Fallback Cisco OID can represent allocated/consumption values. Use it only
+    // when live draw was not populated for a port.
+    for (const vb of ciscoPowerVbs) {
+      const parts = vb.oid.split('.');
+      const port = parseInt(parts.pop(), 10);
+      const module = parseInt(parts.pop(), 10);
+      const key = `${module}:${port}`;
+      if (!poe.has(key)) poe.set(key, { status: 'unknown', power: 0, descr: '' });
+      if (poe.get(key).power > 0) continue;
+
+      const raw = parseFloat(vb.value || '0');
+      if (!Number.isFinite(raw) || raw <= 0) continue;
+
+      let watts = raw / powerDivisor;
+      // Compatibility fallback for Catalyst variants that expose centiwatts.
+      if (powerDivisor === 1000 && watts < 2 && raw >= 1000) {
+        const altWatts = raw / 100;
+        if (altWatts > watts && altWatts <= 100) watts = altWatts;
+      }
+
+      poe.get(key).power = Math.round(watts * 10) / 10;
     }
 
     for (const vb of descrVbs) {
@@ -339,7 +388,9 @@ class SwitchesCollector extends BaseCollector {
       this._getIfNames(sw.ip, sw.community),
       this._getIfOperStatus(sw.ip, sw.community),
       this._getIfAdminStatus(sw.ip, sw.community),
-      this._getPoeData(sw.ip, sw.community).catch(e => {
+      this._getPoeData(sw.ip, sw.community, {
+        poePowerDivisor: sw.poePowerDivisor || process.env.SWITCH_POE_DIVISOR || 1000,
+      }).catch(e => {
         console.warn(`[switches] ${sw.name} PoE data error:`, getErrorMessage(e));
         return new Map();
       }),
