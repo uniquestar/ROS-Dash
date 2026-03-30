@@ -53,6 +53,25 @@ app.use(session({
 const csrf = require('csurf');
 const csrfProtection = csrf({ cookie: false });
 
+// WireGuard environment-backed config
+const WG_INTERFACE = process.env.WG_INTERFACE || 'WireGuard';
+const WG_LIST_PREFIX = process.env.WG_LIST_PREFIX || 'WG-';
+const WG_SERVER_LISTEN_PORT = parseInt(process.env.WG_SERVER_LISTEN_PORT || '13231', 10);
+const WG_CLIENT_DNS = process.env.WG_CLIENT_DNS || '192.168.168.1';
+const WG_ALLOWED_SUBNET = process.env.WG_ALLOWED_SUBNET || '192.168.168.0/24';
+const WG_CLIENT_PREFIX = parseInt(process.env.WG_CLIENT_PREFIX || '24', 10);
+
+function buildWgAllowedAddressRegex(cidr) {
+  const m = String(cidr || '').match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.0\/24$/);
+  if (!m) {
+    console.warn('[wireguard] WG_ALLOWED_SUBNET invalid, falling back to 192.168.168.0/24');
+    return /^192\.168\.168\.\d{1,3}\/32$/;
+  }
+  return new RegExp('^' + m[1] + '\\.' + m[2] + '\\.' + m[3] + '\\.\\d{1,3}\\/32$');
+}
+
+const WG_ALLOWED_ADDRESS_REGEX = buildWgAllowedAddressRegex(WG_ALLOWED_SUBNET);
+
 // ── Validation Schemas ───────────────────────────────────────────────────
 
 // IP address regex: matches standard IPv4 format
@@ -70,7 +89,7 @@ const dhcpRemoveStaticSchema = z.object({
 // WireGuard schemas
 const wireguardCreatePeerSchema = z.object({
   name: z.string().min(1, 'Name is required'),
-  allowedAddress: z.string().regex(/^192\.168\.168\.\d{1,3}\/32$/, 'Allowed address must be in 192.168.168.0/24 with /32 CIDR'),
+  allowedAddress: z.string().regex(WG_ALLOWED_ADDRESS_REGEX, `Allowed address must be in ${WG_ALLOWED_SUBNET} with /32 CIDR`),
   clientEndpoint: z.string().regex(/^[\w\-.]+(:\d+)?$/, 'Invalid client endpoint format'),
   addressList: z.string().optional(),
   clientAllowedAddress: z.string().optional(),
@@ -168,9 +187,6 @@ app.post('/api/dhcp/remove-static', csrfProtection, requireAuth, requirePageWrit
 // ── WireGuard Management ──────────────────────────────────────────────────
 
 const { generateKeypair, generatePsk, buildConfig } = require('./util/wireguard');
-const WG_INTERFACE  = 'WireGuard';
-const WG_LIST_PREFIX = 'WG-';
-const SERVER_LISTEN_PORT = 13231;
 
 // Get all WireGuard user peers with address list membership
 app.get('/api/wireguard/peers', requireAuth, requirePageRead('vpn'), async (req, res) => {
@@ -270,8 +286,8 @@ app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('
       '=public-key='         + publicKey,
       '=preshared-key='      + psk,
       '=allowed-address='    + ip + '/32',
-      '=client-address='     + ip + '/24',
-      '=client-dns=192.168.168.1',
+      '=client-address='     + ip + '/' + WG_CLIENT_PREFIX,
+      '=client-dns='         + WG_CLIENT_DNS,
       '=client-endpoint='    + clientEndpoint,
       '=client-allowed-address=' + (clientAllowedAddress || '0.0.0.0/0'),
     ]);
@@ -289,11 +305,11 @@ app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('
     const config = buildConfig({
       name, privateKey, psk, serverPublicKey,
       allowedAddress:        ip + '/32',
-      clientAddress:         ip + '/24',
-      clientDns:             '192.168.168.1',
+      clientAddress:         ip + '/' + WG_CLIENT_PREFIX,
+      clientDns:             WG_CLIENT_DNS,
       clientEndpoint,
       clientAllowedAddresses: clientAllowedAddress || '0.0.0.0/0',
-      listenPort:            SERVER_LISTEN_PORT,
+      listenPort:            WG_SERVER_LISTEN_PORT,
     });
 
     console.log('[wireguard] created peer:', name, ip);
