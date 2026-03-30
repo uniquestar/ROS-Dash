@@ -82,6 +82,7 @@ ROS-Dash includes built-in authentication, CSRF protection, and is suitable for 
 
 **Key security features:**
 - **CSRF protection** — all state-changing endpoints require valid CSRF tokens; same-site request forgery attacks are prevented
+- **Input validation** — all write endpoints validate request bodies with zod schemas (DHCP, WireGuard, users, permissions); malformed requests rejected with 400 errors
 - **Hardened secrets** — `DASH_SECRET` is required at startup (no weak fallback); session tokens use HMAC-SHA256 signing
 - **Session validation** — 8-hour token expiry, automatic invalidation on server restart, per-page access control
 - **Protected WebSocket** — unauthenticated socket connections rejected at handshake
