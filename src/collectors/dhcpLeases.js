@@ -2,12 +2,12 @@
  * DHCP Leases — streams /ip/dhcp-server/lease/listen for instant updates,
  * with a one-shot /print on startup to populate the initial state.
  */
-class DhcpLeasesCollector {
+const BaseCollector = require('./BaseCollector');
+
+class DhcpLeasesCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state }) {
-    this.ros = ros;
+    super({ name: 'leases', ros, pollMs: pollMs || (5 * 60 * 1000), state });
     this.io = io;
-    this.pollMs = pollMs;
-    this.state = state;
     this.byIP  = new Map();
     this.byMAC = new Map();
     this.seenMACs = new Set();
@@ -46,13 +46,16 @@ class DhcpLeasesCollector {
     }
   }
 
-  async _loadInitial() {
+  async tick() {
+    // Periodic full reload to catch deleted leases (runs every 5 minutes)
     try {
+      this.byIP.clear();
+      this.byMAC.clear();
       const leases = await this.ros.write('/ip/dhcp-server/lease/print');
       for (const l of (leases || [])) this._applyLease(l);
       this.state.lastLeasesTs = Date.now();
     } catch (e) {
-      console.error('[leases] initial load failed:', e && e.message ? e.message : e);
+      throw e;
     }
   }
 
@@ -74,21 +77,36 @@ class DhcpLeasesCollector {
     if (this.stream) { try { this.stream.stop(); } catch (_) {} this.stream = null; }
   }
 
-  async start() {
-    await this._loadInitial();
+  async onConnected() {
+    this._stopStream();
+    await this.tick();
     this._startStream();
-    // Periodic full reload to catch deleted leases (every 5 minutes)
+  }
+
+  async onDisconnected() {
+    this._stopStream();
+  }
+
+  async start() {
+    // Load initial data
+    await this.tick();
+    this._startStream();
+    
+    // Periodic full reload (runs on timer independently of tick)
     this._reloadTimer = setInterval(async () => {
-      this.byIP.clear();
-      this.byMAC.clear();
-      await this._loadInitial();
-    }, 5 * 60 * 1000);
-    this.ros.on('connected', async () => {
-      this._stopStream();
-      await this._loadInitial();
-      this._startStream();
-    });
-    this.ros.on('close', () => this._stopStream());
+      try { await this.tick(); } catch (e) { console.error('[leases] reload failed:', e.message); }
+    }, this.pollMs);
+
+    // Register listeners
+    this.ros.on('connected', () => this.onConnected());
+    this.ros.on('close', () => this.onDisconnected());
+  }
+
+  stop() {
+    if (this._reloadTimer) clearInterval(this._reloadTimer);
+    this._stopStream();
+    this.ros.removeAllListeners('connected');
+    this.ros.removeAllListeners('close');
   }
 }
 module.exports = DhcpLeasesCollector;

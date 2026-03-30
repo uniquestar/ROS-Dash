@@ -1,16 +1,13 @@
-class SystemCollector {
+const BaseCollector = require('./BaseCollector');
+
+class SystemCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state }) {
-    this.ros = ros;
+    super({ name: 'system', ros, pollMs: pollMs || 5000, state });
     this.io = io;
-    this.pollMs = pollMs || 5000;
-    this.state = state;
-    this.timer = null;
     this._loggedUpdateFields = false; // one-time field dump for diagnosis
   }
 
   async tick() {
-    if (!this.ros.connected) return;
-
     let r = {}, h = [], u = {};
     try {
       const [resResult, healthResult, updateResult] = await Promise.allSettled([
@@ -29,8 +26,7 @@ class SystemCollector {
       }
     } catch (e) {
       this.state.lastSystemErr = String(e && e.message ? e.message : e);
-      console.error('[system]', this.state.lastSystemErr);
-      return;
+      throw e;
     }
 
     const cpuLoad  = parseInt(r['cpu-load']       || '0', 10);
@@ -72,19 +68,6 @@ class SystemCollector {
     });
     this.state.lastSystemTs = Date.now();
     delete this.state.lastSystemErr;
-  }
-
-  start() {
-    const run = async () => {
-      try { await this.tick(); } catch (e) {
-        this.state.lastSystemErr = String(e && e.message ? e.message : e);
-        console.error('[system]', this.state.lastSystemErr);
-      }
-    };
-    run();
-    this.timer = setInterval(run, this.pollMs);
-    this.ros.on('close',     () => { if (this.timer) { clearInterval(this.timer); this.timer = null; } });
-    this.ros.on('connected', () => { this.timer = this.timer || setInterval(run, this.pollMs); run(); });
   }
 }
 
