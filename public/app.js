@@ -2113,6 +2113,16 @@ sendNotif = function(title, body, tag){
   var _selSwitch = '';
   var _selModule = 1;
 
+  function updateWriteMemoryButton() {
+    var btn = $('swWriteMemoryBtn');
+    if (!btn) return;
+    var swMeta = _swMeta[_selSwitch] || {};
+    var show = !!_selSwitch && switchCanWrite && !!swMeta.writeEnabled;
+    btn.style.display = show ? '' : 'none';
+    btn.disabled = false;
+    btn.textContent = 'Write Memory';
+  }
+
   // Tab switching
   document.querySelectorAll('.sw-tab-btn').forEach(function(btn){
     btn.addEventListener('click', function(){
@@ -2178,6 +2188,7 @@ function loadSwitchPorts(name) {
         }
         _selModule = modules[0] || 1;
         renderVisualiser(name, _selModule);
+        updateWriteMemoryButton();
       }).catch(function(){
         var diag = $('swVisDiagram');
         if (diag) diag.innerHTML = '<div class="empty-state">Failed to load port data</div>';
@@ -2196,6 +2207,7 @@ function renderVisualiser(switchName, module) {
 
     function portColor(p) {
       if (!p) return 'var(--bg-main)';
+      if ((p.adminStatus || 'up') === 'down') return 'rgba(248,113,113,.16)';
       if (p.isUplink && p.status === 'up') return 'rgba(168,85,247,.2)';
       if (p.isUplink) return 'rgba(255,255,255,.05)';
       if (p.status === 'up' && p.poeStatus === 'delivering') return 'rgba(34,197,94,.25)';
@@ -2205,6 +2217,7 @@ function renderVisualiser(switchName, module) {
 
     function portBorder(p) {
       if (!p) return '1px solid var(--border)';
+      if ((p.adminStatus || 'up') === 'down') return '1px solid rgba(248,113,113,.65)';
       if (p.isUplink && p.status === 'up') return '1px solid rgba(168,85,247,.5)';
       if (p.isUplink) return '1px solid var(--border)';
       if (p.status === 'up' && p.poeStatus === 'delivering') return '1px solid rgba(34,197,94,.6)';
@@ -2220,6 +2233,7 @@ function renderVisualiser(switchName, module) {
     function portTitle(p) {
       if (!p) return '';
       var lines = ['Port: '+p.ifName, 'Status: '+p.status];
+      lines.push('Admin: ' + (p.adminStatus || 'up'));
       if (p.isUplink) { lines.push('Uplink port'); return lines.join('\n'); }
       if (p.poeStatus === 'delivering') {
         lines.push('PoE: delivering');
@@ -2248,6 +2262,8 @@ function renderVisualiser(switchName, module) {
       return pairs.map(function(pair){
         var topP = pair.top;
         var botP = pair.bottom;
+        var topDisabled = topP && ((topP.adminStatus || 'up') === 'down');
+        var botDisabled = botP && ((botP.adminStatus || 'up') === 'down');
         var topHTML = topP
           ? '<div data-port="'+topP.ifName+'" style="'+
               'width:36px;height:28px;border-radius:3px 3px 0 0;'+
@@ -2257,6 +2273,7 @@ function renderVisualiser(switchName, module) {
               'font-size:.6rem;font-family:var(--font-mono);color:var(--text-muted);'+
               'cursor:pointer;position:relative" title="'+esc(portTitle(topP))+'">'+
               portLabel(topP)+
+              (topDisabled ? '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#f87171;font-weight:700;font-size:1rem;pointer-events:none;line-height:1">✕</div>' : '')+
               (topP.poeStatus==='delivering' ? '<div style="position:absolute;bottom:2px;right:2px;width:5px;height:5px;border-radius:50%;background:#22c55e"></div>' : '')+
             '</div>'
           : '<div style="width:36px;height:28px"></div>';
@@ -2269,6 +2286,7 @@ function renderVisualiser(switchName, module) {
               'font-size:.6rem;font-family:var(--font-mono);color:var(--text-muted);'+
               'cursor:pointer;position:relative" title="'+esc(portTitle(botP))+'">'+
               portLabel(botP)+
+              (botDisabled ? '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#f87171;font-weight:700;font-size:1rem;pointer-events:none;line-height:1">✕</div>' : '')+
               (botP.poeStatus==='delivering' ? '<div style="position:absolute;bottom:2px;right:2px;width:5px;height:5px;border-radius:50%;background:#22c55e"></div>' : '')+
             '</div>'
           : '<div style="width:36px;height:28px"></div>';
@@ -2281,6 +2299,7 @@ function renderVisualiser(switchName, module) {
       '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(56,189,248,.2);border:1px solid rgba(56,189,248,.5);margin-right:4px"></span>Up</span>'+
       '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(34,197,94,.25);border:1px solid rgba(34,197,94,.6);margin-right:4px"></span>Up + PoE</span>'+
       '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(255,255,255,.05);border:1px solid var(--border);margin-right:4px"></span>Down</span>'+
+      '<span><span style="display:inline-flex;width:10px;height:10px;border-radius:2px;background:rgba(248,113,113,.16);border:1px solid rgba(248,113,113,.65);margin-right:4px;align-items:center;justify-content:center;color:#f87171;font-size:.55rem;line-height:1">✕</span>Admin Disabled</span>'+
       '<span><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#22c55e;margin-right:4px;vertical-align:middle"></span>PoE active</span>'+
     '</div>';
 
@@ -2327,8 +2346,10 @@ function renderVisualiser(switchName, module) {
     var poeColor    = p.poeStatus === 'delivering' ? '#22c55e' : 'var(--text-muted)';
     var swMeta = _swMeta[_selSwitch] || {};
     var canWritePortVlan = switchCanWrite && !!swMeta.writeEnabled;
+    var canWritePortAdmin = switchCanWrite && !!swMeta.writeEnabled;
     var currentAccessVlan = p.accessVlan || ((p.macs && p.macs.length) ? p.macs[0].vlan : null);
     var vlanOptions = (swMeta.vlanOptions || []).slice().sort(function(a, b){ return a - b; });
+    var isAdminUp = (p.adminStatus || 'up') === 'up';
 
     var devRows = '';
     if (p.macs && p.macs.length) {
@@ -2346,12 +2367,24 @@ function renderVisualiser(switchName, module) {
       '<table style="width:100%;font-size:.82rem;margin-bottom:1rem">'+
         '<tr><td style="color:var(--text-muted);width:40%">Status</td>'+
             '<td><span style="color:'+statusColor+';font-weight:600">'+p.status.toUpperCase()+'</span></td></tr>'+
+        '<tr><td style="color:var(--text-muted)">Admin State</td>'+
+            '<td>'+esc((p.adminStatus || 'up').toUpperCase())+'</td></tr>'+
         '<tr><td style="color:var(--text-muted)">Access VLAN</td>'+
             '<td>'+esc(currentAccessVlan || '—')+'</td></tr>'+
         '<tr><td style="color:var(--text-muted)">PoE</td>'+
             '<td><span style="color:'+poeColor+'">'+p.poeStatus+'</span></td></tr>'+
         (p.poeDescr ? '<tr><td style="color:var(--text-muted)">Device Type</td><td>'+esc(p.poeDescr)+'</td></tr>' : '')+
       '</table>'+
+      (canWritePortAdmin
+        ? '<div style="border-top:1px solid var(--border);padding-top:.8rem;margin-bottom:.9rem">'+
+            '<div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.45rem">PORT ADMIN STATE</div>'+
+            '<div style="display:flex;gap:.5rem;align-items:center">'+
+              '<button id="swPortAdminBtn" class="btn btn-sm '+(isAdminUp ? 'btn-outline-danger' : 'btn-outline-success')+'">'+(isAdminUp ? 'Shutdown Port' : 'No Shutdown')+'</button>'+
+              '<span id="swPortAdminMsg" style="font-size:.7rem;color:var(--text-muted)"></span>'+
+            '</div>'+
+          '</div>'
+        : ''
+      )+
       (canWritePortVlan
         ? '<div style="border-top:1px solid var(--border);padding-top:.8rem;margin-bottom:.9rem">'+
             '<div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.45rem">PORT VLAN MAPPING</div>'+
@@ -2420,6 +2453,36 @@ function renderVisualiser(switchName, module) {
       }
     }
 
+    if (canWritePortAdmin) {
+      var adminBtn = $('swPortAdminBtn');
+      var adminMsg = $('swPortAdminMsg');
+      if (adminBtn) {
+        adminBtn.addEventListener('click', function(){
+          var nextEnabled = !isAdminUp;
+          adminBtn.disabled = true;
+          if (adminMsg) adminMsg.textContent = '';
+          secureApiCall('/api/switches/'+encodeURIComponent(_selSwitch)+'/port-admin', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ifName: p.ifName, enabled: nextEnabled }),
+          }).then(function(r){ return r.json(); }).then(function(data){
+            if (!data || data.error) {
+              if (adminMsg) adminMsg.textContent = (data && data.error) ? data.error : 'Failed';
+              adminBtn.disabled = false;
+              return;
+            }
+            if (adminMsg) adminMsg.textContent = 'Saved';
+            loadSwitchPorts(_selSwitch);
+            setTimeout(function(){ adminBtn.disabled = false; }, 400);
+          }).catch(function(){
+            if (adminMsg) adminMsg.textContent = 'Failed';
+            adminBtn.disabled = false;
+          });
+        });
+      }
+    }
+
     modal.style.display = 'flex';
   }
 
@@ -2434,6 +2497,7 @@ function renderVisualiser(switchName, module) {
   var swSel = $('swVisSelect');
   if (swSel) swSel.addEventListener('change', function(){
     _selSwitch = this.value;
+    updateWriteMemoryButton();
     if (!_selSwitch) {
       var diag = $('swVisDiagram');
       if (diag) diag.innerHTML = '<div class="empty-state">Select a switch to view port layout</div>';
@@ -2446,6 +2510,30 @@ function renderVisualiser(switchName, module) {
   setInterval(function(){
     if (_selSwitch) loadSwitchPorts(_selSwitch);
   }, 120000);
+
+  var writeMemBtn = $('swWriteMemoryBtn');
+  if (writeMemBtn) writeMemBtn.addEventListener('click', function(){
+    if (!_selSwitch) return;
+    writeMemBtn.disabled = true;
+    writeMemBtn.textContent = 'Writing…';
+    secureApiCall('/api/switches/'+encodeURIComponent(_selSwitch)+'/write-memory', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }).then(function(r){ return r.json(); }).then(function(data){
+      if (!data || data.error) {
+        writeMemBtn.textContent = 'Write Failed';
+        setTimeout(updateWriteMemoryButton, 1400);
+        return;
+      }
+      writeMemBtn.textContent = 'Written';
+      setTimeout(updateWriteMemoryButton, 1200);
+    }).catch(function(){
+      writeMemBtn.textContent = 'Write Failed';
+      setTimeout(updateWriteMemoryButton, 1400);
+    });
+  });
 
   // Load switch list on startup so visualiser is ready
   loadSwitchList();

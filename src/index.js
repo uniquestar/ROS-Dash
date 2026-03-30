@@ -127,6 +127,11 @@ const switchPortVlanSchema = z.object({
   vlan: z.coerce.number().int().min(1, 'VLAN must be 1-4094').max(4094, 'VLAN must be 1-4094'),
 });
 
+const switchPortAdminSchema = z.object({
+  ifName: z.string().min(1, 'Port name is required'),
+  enabled: z.boolean(),
+});
+
 // Serve CSRF token for AJAX requests
 app.get('/api/csrf-token', csrfProtection, (req, res) => {
   res.json({ csrfToken: req.csrfToken() });
@@ -486,6 +491,38 @@ app.post('/api/switches/:name/port-vlan', csrfProtection, requireAuth, requirePa
     }
     const msg = getErrorMessage(e);
     console.error('[switches] set port vlan failed:', msg);
+    return res.status(500).json({ error: msg });
+  }
+});
+
+app.post('/api/switches/:name/port-admin', csrfProtection, requireAuth, requirePageWrite('switches'), async (req, res) => {
+  try {
+    const { ifName, enabled } = switchPortAdminSchema.parse(req.body);
+    const result = await switches.setPortAdmin({ switchName: req.params.name, ifName, enabled });
+    res.json({ ok: true, result });
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      return res.status(400).json({ error: e.errors[0].message });
+    }
+    if (e && e.statusCode) {
+      return res.status(e.statusCode).json({ error: getErrorMessage(e) });
+    }
+    const msg = getErrorMessage(e);
+    console.error('[switches] set port admin failed:', msg);
+    return res.status(500).json({ error: msg });
+  }
+});
+
+app.post('/api/switches/:name/write-memory', csrfProtection, requireAuth, requirePageWrite('switches'), async (req, res) => {
+  try {
+    const result = await switches.writeMemory({ switchName: req.params.name });
+    res.json({ ok: true, result });
+  } catch (e) {
+    if (e && e.statusCode) {
+      return res.status(e.statusCode).json({ error: getErrorMessage(e) });
+    }
+    const msg = getErrorMessage(e);
+    console.error('[switches] write memory failed:', msg);
     return res.status(500).json({ error: msg });
   }
 });
