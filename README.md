@@ -286,23 +286,32 @@ Permissions are configured per user per page via the Users page. Changes take ef
 
 ```env
 PORT=3081                    # HTTP port ROS-Dash listens on
+DASH_SECRET=replace-with-a-long-random-secret-at-least-32-chars
 ROUTER_HOST=192.168.88.1     # RouterOS IP or hostname
-ROUTER_PORT=8728             # API port (8728 plain, 8729 TLS)
+ROUTER_PORT=8729             # API port (8728 plain, 8729 TLS)
 ROUTER_TLS=false             # Set true to use API-SSL
 ROUTER_TLS_INSECURE=false    # Skip TLS cert verification (self-signed certs)
-ROUTER_USER=rosdash          # API username
+ROUTER_USER=mikrodash        # API username
 ROUTER_PASS=change-me        # API password
-DEFAULT_IF=ether1            # Default WAN interface for traffic chart
+DEFAULT_IF=WAN1              # Default WAN interface for traffic chart
 HISTORY_MINUTES=30           # Traffic chart history window
-DASH_SECRET=                 # Random string for session token signing
-DB_PATH=./ros-dash.db        # Path to SQLite database file
+
+# WireGuard
+WG_INTERFACE=WireGuard
+WG_LIST_PREFIX=WG-
+WG_SERVER_LISTEN_PORT=13231
+WG_ALLOWED_SUBNET=192.168.168.0/24
+WG_CLIENT_PREFIX=24
+WG_CLIENT_DNS=192.168.168.1
 
 # Polling intervals (ms)
 CONNS_POLL_MS=3000
+KIDS_POLL_MS=3000
 DHCP_POLL_MS=15000
 LEASES_POLL_MS=15000
 ARP_POLL_MS=30000
 SYSTEM_POLL_MS=3000
+WIRELESS_POLL_MS=5000
 VPN_POLL_MS=10000
 FIREWALL_POLL_MS=10000
 IFSTATUS_POLL_MS=5000
@@ -315,6 +324,7 @@ PING_TARGET=1.1.1.1
 TOP_N=10
 TOP_TALKERS_N=5
 FIREWALL_TOP_N=15
+ROS_DEBUG=false
 ```
 
 ---
