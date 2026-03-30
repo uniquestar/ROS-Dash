@@ -13,6 +13,7 @@ const http    = require('http');
 const { Server } = require('socket.io');
 const { z } = require('zod');
 const { RouterOsInputError, sanitizeRosId, sanitizePeerName, sanitizeAddressListName } = require('./util/routerosSanitize');
+const { getErrorMessage } = require('./util/errors');
 
 const ROS                  = require('./routeros/client');
 const { fetchInterfaces }  = require('./collectors/interfaces');
@@ -164,8 +165,9 @@ app.post('/api/dhcp/make-static', csrfProtection, requireAuth, requirePageWrite(
     if (e instanceof RouterOsInputError) {
       return res.status(400).json({ error: e.message });
     }
-    console.error('[dhcp] make-static failed:', e.message);
-    res.status(500).json({ error: e.message });
+    const msg = getErrorMessage(e);
+    console.error('[dhcp] make-static failed:', msg);
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -188,8 +190,9 @@ app.post('/api/dhcp/remove-static', csrfProtection, requireAuth, requirePageWrit
     if (e instanceof RouterOsInputError) {
       return res.status(400).json({ error: e.message });
     }
-    console.error('[dhcp] remove-static failed:', e.message);
-    res.status(500).json({ error: e.message });
+    const msg = getErrorMessage(e);
+    console.error('[dhcp] remove-static failed:', msg);
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -233,7 +236,7 @@ app.get('/api/wireguard/peers', requireAuth, requirePageRead('vpn'), async (req,
     });
     res.json(result);
   } catch(e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: getErrorMessage(e) });
   }
 });
 
@@ -247,7 +250,7 @@ app.get('/api/wireguard/address-lists', requireAuth, requirePageRead('vpn'), asy
     )].sort();
     res.json(lists);
   } catch(e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: getErrorMessage(e) });
   }
 });
 
@@ -261,7 +264,7 @@ app.get('/api/wireguard/used-ips', requireAuth, requirePageRead('vpn'), async (r
       .filter(Boolean);
     res.json(ips);
   } catch(e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: getErrorMessage(e) });
   }
 });
 
@@ -333,8 +336,9 @@ app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('
     if (e instanceof RouterOsInputError) {
       return res.status(400).json({ error: e.message });
     }
-    console.error('[wireguard] create peer failed:', e.message);
-    res.status(500).json({ error: e.message });
+    const msg = getErrorMessage(e);
+    console.error('[wireguard] create peer failed:', msg);
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -387,8 +391,9 @@ app.patch('/api/wireguard/peers/:id', csrfProtection, requireAuth, requirePageWr
     if (e instanceof RouterOsInputError) {
       return res.status(400).json({ error: e.message });
     }
-    console.error('[wireguard] update peer failed:', e.message);
-    res.status(500).json({ error: e.message });
+    const msg = getErrorMessage(e);
+    console.error('[wireguard] update peer failed:', msg);
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -432,7 +437,7 @@ app.get('/api/system/backup', requireAuth, requirePageRead('dashboard'), async (
     try {
       await ros.write('/file/remove', ['=numbers=' + backupFile]);
     } catch(e) {
-      console.warn('[backup] cleanup failed (non-fatal):', e.message);
+      console.warn('[backup] cleanup failed (non-fatal):', getErrorMessage(e));
     }
 
     // Step 5 — stream to browser
@@ -445,8 +450,9 @@ app.get('/api/system/backup', requireAuth, requirePageRead('dashboard'), async (
     console.log('[backup] sent ' + fileBuffer.length + ' bytes to client');
 
   } catch(e) {
-    console.error('[backup] failed:', e.message);
-    res.status(500).json({ error: e.message });
+    const msg = getErrorMessage(e);
+    console.error('[backup] failed:', msg);
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -506,8 +512,9 @@ app.post('/api/users', csrfProtection, requireAuth, requirePageWrite('users'), (
     if (e instanceof z.ZodError) {
       return res.status(400).json({ error: e.errors[0].message });
     }
-    console.error('[users] create user failed:', e.message);
-    res.status(500).json({ error: e.message });
+    const msg = getErrorMessage(e);
+    console.error('[users] create user failed:', msg);
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -523,8 +530,9 @@ app.patch('/api/users/:username', csrfProtection, requireAuth, requirePageWrite(
     if (e instanceof z.ZodError) {
       return res.status(400).json({ error: e.errors[0].message });
     }
-    console.error('[users] update password failed:', e.message);
-    res.status(500).json({ error: e.message });
+    const msg = getErrorMessage(e);
+    console.error('[users] update password failed:', msg);
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -553,8 +561,9 @@ app.post('/api/permissions', csrfProtection, requireAuth, requirePageWrite('user
     if (e instanceof z.ZodError) {
       return res.status(400).json({ error: e.errors[0].message });
     }
-    console.error('[permissions] set permission failed:', e.message);
-    res.status(500).json({ error: e.message });
+    const msg = getErrorMessage(e);
+    console.error('[permissions] set permission failed:', msg);
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -706,7 +715,7 @@ ros.connectLoop();
 
     console.log('[ROS-Dash] All collectors running');
   } catch (e) {
-    console.error('[ROS-Dash] Startup error:', e && e.message ? e.message : e);
+    console.error('[ROS-Dash] Startup error:', getErrorMessage(e));
   }
 })();
 
@@ -770,7 +779,7 @@ function shutdown() {
   try {
     const db = getDb();
     if (db) { db.pragma('wal_checkpoint(TRUNCATE)'); console.log('[ROS-Dash] Database checkpointed'); }
-  } catch(e) { console.error('[ROS-Dash] Checkpoint failed:', e.message); }
+  } catch(e) { console.error('[ROS-Dash] Checkpoint failed:', getErrorMessage(e)); }
   process.exit(0);
 }
 process.on('SIGTERM', shutdown);

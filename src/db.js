@@ -6,6 +6,7 @@ const Database = require('better-sqlite3');
 const fs       = require('fs');
 const path     = require('path');
 const crypto   = require('crypto');
+const { getErrorMessage } = require('./util/errors');
 
 // All pages in the application — add new pages here
 const PAGES = [
@@ -127,7 +128,7 @@ function migrateUsersJson() {
   try {
     data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
   } catch(e) {
-    console.error('[db] failed to parse users.json for migration:', e.message);
+    console.error('[db] failed to parse users.json for migration:', getErrorMessage(e));
     return;
   }
 

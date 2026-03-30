@@ -1,4 +1,5 @@
 const BaseCollector = require('./BaseCollector');
+const { getErrorMessage } = require('../util/errors');
 
 class WirelessCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state, dhcpLeases, arp }) {
@@ -75,7 +76,7 @@ class WirelessCollector extends BaseCollector {
     try {
       await this.tick();
     } catch (e) {
-      this.state.lastWirelessErr = String(e && e.message ? e.message : e);
+      this.state.lastWirelessErr = getErrorMessage(e);
       console.error('[wireless]', this.state.lastWirelessErr);
     }
   }

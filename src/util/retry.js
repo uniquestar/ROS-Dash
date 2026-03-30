@@ -1,9 +1,11 @@
+const { getErrorMessage } = require('./errors');
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function defaultShouldRetry(err) {
-  const msg = String(err && err.message ? err.message : err).toLowerCase();
+  const msg = getErrorMessage(err).toLowerCase();
   const transientMarkers = [
     'timeout',
     'timed out',

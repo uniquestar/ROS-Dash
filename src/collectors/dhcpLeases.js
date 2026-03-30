@@ -3,6 +3,7 @@
  * with a one-shot /print on startup to populate the initial state.
  */
 const BaseCollector = require('./BaseCollector');
+const { getErrorMessage } = require('../util/errors');
 
 class DhcpLeasesCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state }) {
@@ -64,12 +65,12 @@ class DhcpLeasesCollector extends BaseCollector {
     if (!this.ros.connected) return;
     try {
       this.stream = this.ros.stream(['/ip/dhcp-server/lease/listen'], (err, data) => {
-        if (err) { console.error('[leases] stream error:', err && err.message ? err.message : err); this.stream = null; return; }
+        if (err) { console.error('[leases] stream error:', getErrorMessage(err)); this.stream = null; return; }
         if (data) { this._applyLease(data); this.state.lastLeasesTs = Date.now(); }
       });
       console.log('[leases] streaming /ip/dhcp-server/lease/listen');
     } catch (e) {
-      console.error('[leases] stream start failed:', e && e.message ? e.message : e);
+      console.error('[leases] stream start failed:', getErrorMessage(e));
     }
   }
 
@@ -94,7 +95,7 @@ class DhcpLeasesCollector extends BaseCollector {
     
     // Periodic full reload (runs on timer independently of tick)
     this._reloadTimer = setInterval(async () => {
-      try { await this.tick(); } catch (e) { console.error('[leases] reload failed:', e.message); }
+      try { await this.tick(); } catch (e) { console.error('[leases] reload failed:', getErrorMessage(e)); }
     }, this.pollMs);
 
     // Register listeners

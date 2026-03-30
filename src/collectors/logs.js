@@ -4,6 +4,7 @@
  * Zero polling, zero seen-set needed — we just receive and forward.
  */
 const BaseCollector = require('./BaseCollector');
+const { getErrorMessage } = require('../util/errors');
 
 class LogsCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state }) {
@@ -26,7 +27,7 @@ class LogsCollector extends BaseCollector {
 
   _onEntry(err, data) {
     if (err) {
-      this.state.lastLogsErr = String(err && err.message ? err.message : err);
+      this.state.lastLogsErr = getErrorMessage(err);
       console.error('[logs] stream error:', this.state.lastLogsErr);
       this.stream = null;
       return;
@@ -53,7 +54,7 @@ class LogsCollector extends BaseCollector {
       this.stream = this.ros.stream(['/log/listen'], (err, data) => this._onEntry(err, data));
       console.log('[logs] streaming /log/listen');
     } catch (e) {
-      this.state.lastLogsErr = String(e && e.message ? e.message : e);
+      this.state.lastLogsErr = getErrorMessage(e);
       console.error('[logs] failed to start stream:', this.state.lastLogsErr);
     }
   }

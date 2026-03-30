@@ -1,4 +1,5 @@
 const BaseCollector = require('./BaseCollector');
+const { getErrorMessage } = require('../util/errors');
 
 class PingCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state, target }) {
@@ -38,7 +39,7 @@ class PingCollector extends BaseCollector {
         loss = Math.round(((3 - replied.length) / 3) * 100);
       }
     } catch (e) {
-      console.error('[ping]', e && e.message ? e.message : e);
+      console.error('[ping]', getErrorMessage(e));
     }
 
     const point = { ts: Date.now(), rtt, loss };

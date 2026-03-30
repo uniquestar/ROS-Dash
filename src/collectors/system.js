@@ -1,4 +1,5 @@
 const BaseCollector = require('./BaseCollector');
+const { getErrorMessage } = require('../util/errors');
 
 class SystemCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state }) {
@@ -25,7 +26,7 @@ class SystemCollector extends BaseCollector {
         this._loggedUpdateFields = true;
       }
     } catch (e) {
-      this.state.lastSystemErr = String(e && e.message ? e.message : e);
+      this.state.lastSystemErr = getErrorMessage(e);
       console.error('[system]', this.state.lastSystemErr);
       return;
     }

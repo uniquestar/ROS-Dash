@@ -8,9 +8,10 @@ try { geoip = require('geoip-lite'); } catch(e) { console.warn('[connections] ge
 const BaseCollector = require('./BaseCollector');
 const { isInCidrs } = require('../util/ip');
 const { withRetry, defaultShouldRetry } = require('../util/retry');
+const { getErrorMessage } = require('../util/errors');
 
 function isTransientRosError(err) {
-  const msg = String(err && err.message ? err.message : err).toLowerCase();
+  const msg = getErrorMessage(err).toLowerCase();
   if (msg.includes('no such item')) return false;
   return defaultShouldRetry(err);
 }
@@ -66,7 +67,7 @@ class ConnectionsCollector extends BaseCollector {
         baseDelayMs: 150,
         shouldRetry: isTransientRosError,
         onRetry: (err, meta) => {
-          console.warn(`[connections] retry ${meta.attempt}/${meta.retries} after error:`, err && err.message ? err.message : err);
+          console.warn(`[connections] retry ${meta.attempt}/${meta.retries} after error:`, getErrorMessage(err));
         },
       }
     );
@@ -180,7 +181,7 @@ class ConnectionsCollector extends BaseCollector {
     try {
       await this.tick();
     } catch (e) {
-      const msg = e && e.message ? e.message : String(e);
+      const msg = getErrorMessage(e);
       // RouterOS races: connections expire between list and fetch — not a real error
       if (msg.includes('no such item')) return;
       console.error(`[${this.name}] tick error:`, msg);
