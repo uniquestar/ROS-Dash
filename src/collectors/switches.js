@@ -16,6 +16,7 @@ const OID_BRIDGE_PORT_IF = '1.3.6.1.2.1.17.1.4.1.2';
 const OID_FDB_MAC        = '1.3.6.1.2.1.17.4.3.1.1';
 const OID_FDB_PORT       = '1.3.6.1.2.1.17.4.3.1.2';
 // OIDs — port status & PoE
+const OID_IF_ADMIN_STATUS = '1.3.6.1.2.1.2.2.1.7';
 const OID_IF_OPER_STATUS = '1.3.6.1.2.1.2.2.1.8';
 const OID_POE_STATUS     = '1.3.6.1.2.1.105.1.1.1.6';
 const OID_POE_POWER      = '1.3.6.1.2.1.105.1.1.1.10';
@@ -23,6 +24,7 @@ const OID_POE_DESCR      = '1.3.6.1.2.1.105.1.1.1.9';
 // OIDs — VLAN discovery + access VLAN write/read
 const OID_DOT1Q_VLAN_NAME = '1.3.6.1.2.1.17.7.1.4.3.1.1';
 const OID_CISCO_ACCESS_VLAN = '1.3.6.1.4.1.9.9.68.1.2.2.1.2';
+const OID_CISCO_WRITE_MEMORY = '1.3.6.1.4.1.9.2.1.54.0';
 
 // Port name regex — only physical switch ports (x/0/x), no card slots
 const PORT_RE = /^(Fi|Gi|Te)\d+\/0\/\d+$/;
@@ -210,6 +212,16 @@ class SwitchesCollector extends BaseCollector {
     return map;
   }
 
+  async _getIfAdminStatus(ip, community) {
+    const varbinds = await this._walk(ip, community, OID_IF_ADMIN_STATUS);
+    const map = new Map(); // ifIndex -> 'up'|'down'
+    for (const vb of varbinds) {
+      const ifIndex = parseInt(vb.oid.split('.').pop(), 10);
+      map.set(ifIndex, vb.value === 1 ? 'up' : 'down');
+    }
+    return map;
+  }
+
   // PoE OIDs use module.port indexing — returns Map keyed as "module:port"
   async _getPoeData(ip, community) {
     const [statusVbs, powerVbs, descrVbs] = await Promise.all([
@@ -323,9 +335,10 @@ class SwitchesCollector extends BaseCollector {
     const trunkSet = new Set(sw.uplinkPorts || []);
 
     // Collect base data in parallel where possible
-    const [ifNames, ifOperStatus, poeData, switchVlans, accessVlanByIfIndex] = await Promise.all([
+    const [ifNames, ifOperStatus, ifAdminStatus, poeData, switchVlans, accessVlanByIfIndex] = await Promise.all([
       this._getIfNames(sw.ip, sw.community),
       this._getIfOperStatus(sw.ip, sw.community),
+      this._getIfAdminStatus(sw.ip, sw.community),
       this._getPoeData(sw.ip, sw.community).catch(e => {
         console.warn(`[switches] ${sw.name} PoE data error:`, getErrorMessage(e));
         return new Map();
@@ -428,6 +441,7 @@ class SwitchesCollector extends BaseCollector {
       const poeKey  = `${module}:${port}`;
       const poe     = poeData.get(poeKey) || { status: 'unknown', power: 0, descr: '' };
       const status  = portStatus.get(ifName) || 'down';
+      const adminStatus = ifAdminStatus.get(ifIndex) || 'up';
 
       // Get MACs on this port
       const macs = portMacs.has(ifName) ? Array.from(portMacs.get(ifName).entries()).map(([mac, vlan]) => {
@@ -441,6 +455,7 @@ class SwitchesCollector extends BaseCollector {
         module,
         port,
         status,
+        adminStatus,
         isUplink,
         accessVlan: accessVlanByIfIndex.get(ifIndex) || null,
         poeStatus:  isUplink ? 'none' : poe.status,
@@ -600,6 +615,64 @@ class SwitchesCollector extends BaseCollector {
 
     await this.refreshSwitch(sw.name);
     return { switch: sw.name, ifName, vlan: targetVlan };
+  }
+
+  async setPortAdmin({ switchName, ifName, enabled }) {
+    const sw = this._findSwitch(switchName);
+    if (!sw) {
+      const err = new Error('Switch not found');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const writeCommunity = this._getWriteCommunity(sw);
+    if (!writeCommunity) {
+      const err = new Error('Switch write community is not configured');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const ifNames = await this._getIfNames(sw.ip, sw.community);
+    let ifIndex = null;
+    for (const [idx, name] of ifNames.entries()) {
+      if (name === ifName) {
+        ifIndex = idx;
+        break;
+      }
+    }
+    if (!ifIndex) {
+      const err = new Error('Port index could not be resolved');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const adminValue = enabled ? 1 : 2; // up(1), down(2)
+    const oid = OID_IF_ADMIN_STATUS + '.' + ifIndex;
+    await this._set(sw.ip, writeCommunity, oid, snmp.ObjectType.Integer, adminValue);
+    console.log(`[switches] ${sw.name} ${ifName} admin ${enabled ? 'up' : 'down'}`);
+
+    await this.refreshSwitch(sw.name);
+    return { switch: sw.name, ifName, enabled: !!enabled };
+  }
+
+  async writeMemory({ switchName }) {
+    const sw = this._findSwitch(switchName);
+    if (!sw) {
+      const err = new Error('Switch not found');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const writeCommunity = this._getWriteCommunity(sw);
+    if (!writeCommunity) {
+      const err = new Error('Switch write community is not configured');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    await this._set(sw.ip, writeCommunity, OID_CISCO_WRITE_MEMORY, snmp.ObjectType.Integer, 1);
+    console.log(`[switches] ${sw.name} write memory triggered`);
+    return { switch: sw.name, ok: true };
   }
 
   // Returns cached port data for a named switch
