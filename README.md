@@ -78,10 +78,17 @@ The Switches page includes a graphical port layout mirroring the physical switch
 
 ## Security
 
-ROS-Dash includes built-in authentication and is suitable for deployment behind a reverse proxy with HTTPS.
+ROS-Dash includes built-in authentication, CSRF protection, and is suitable for deployment behind a reverse proxy with HTTPS.
+
+**Key security features:**
+- **CSRF protection** — all state-changing endpoints require valid CSRF tokens; same-site request forgery attacks are prevented
+- **Hardened secrets** — `DASH_SECRET` is required at startup (no weak fallback); session tokens use HMAC-SHA256 signing
+- **Session validation** — 8-hour token expiry, automatic invalidation on server restart, per-page access control
+- **Protected WebSocket** — unauthenticated socket connections rejected at handshake
 
 **Recommended setup:**
 - Deploy behind Nginx Proxy Manager or similar with a valid SSL certificate
+- Set `DASH_SECRET` to a strong random string (≥32 characters) in your `.env`
 - Use a dedicated API user on the router with only the permissions it needs (see RouterOS Setup below)
 - Keep `.env`, `switches.json`, and `ros-dash.db` outside the Docker image, mounted as volumes
 - Never commit `.env` or `switches.json` to version control
@@ -106,7 +113,9 @@ cp .env.example .env
 vim .env
 ```
 
-Create the database and your first admin user:
+**Required environment variables:**
+- `DASH_SECRET` — a strong random string (≥32 characters) used to sign session tokens. Generate with: `openssl rand -base64 32`
+- `ROUTER_HOST`, `ROUTER_PORT`, `ROUTER_USER`, `ROUTER_PASS` — RouterOS API credentials
 
 Create the database and your first admin user:
 ```bash
