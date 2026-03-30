@@ -1,7 +1,14 @@
 const crypto = require('crypto');
 const { getUser, getUserPermissions, getTokenGeneration } = require('./db');
 
-const DASH_SECRET = process.env.DASH_SECRET || 'fallback-secret';
+const DASH_SECRET = (process.env.DASH_SECRET || '').trim();
+if (!DASH_SECRET) {
+  throw new Error('DASH_SECRET is required. Set it in your environment before starting ROS-Dash.');
+}
+if (DASH_SECRET.length < 32) {
+  console.warn('[auth] WARNING: DASH_SECRET is shorter than 32 characters. Use a longer secret.');
+}
+
 const SESSION_TTL = 60 * 60 * 1000; // 1 hour
 
 function verifyPassword(stored, supplied) {

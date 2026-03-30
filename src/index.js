@@ -42,7 +42,7 @@ app.use(express.json());
 // Session middleware for CSRF token storage
 const session = require('express-session');
 app.use(session({
-  secret: process.env.DASH_SECRET || 'fallback-secret',
+  secret: process.env.DASH_SECRET,
   resave: false,
   saveUninitialized: true,
   cookie: { secure: false, httpOnly: true, sameSite: 'strict', maxAge: 24*60*60*1000 },
