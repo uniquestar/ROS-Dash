@@ -6,6 +6,8 @@ class FirewallCollector extends BaseCollector {
     this.io = io;
     this.topN = topN || 15;
     this.prevCounts = new Map();
+    this._lastFingerprint = '';
+    this._lastPayload = null;
   }
 
   async safeGet(cmd) {
@@ -24,6 +26,19 @@ class FirewallCollector extends BaseCollector {
     });
   }
 
+  buildFingerprint(chainName, rows) {
+    let out = chainName + ':' + (rows ? rows.length : 0) + '|';
+    for (const r of (rows || [])) {
+      out += [
+        r['.id'] || '',
+        r.packets || '0',
+        r.bytes || '0',
+        r.disabled === true || r.disabled === 'true' ? '1' : '0',
+      ].join(',') + ';';
+    }
+    return out;
+  }
+
   async tick() {
     // All three fire concurrently
     const [filter, nat, mangle] = await Promise.all([
@@ -31,10 +46,32 @@ class FirewallCollector extends BaseCollector {
       this.safeGet('/ip/firewall/nat/print'),
       this.safeGet('/ip/firewall/mangle/print'),
     ]);
+
+    const fingerprint = [
+      this.buildFingerprint('filter', filter),
+      this.buildFingerprint('nat', nat),
+      this.buildFingerprint('mangle', mangle),
+    ].join('#');
+
+    if (this._lastPayload && fingerprint === this._lastFingerprint) {
+      this.io.emit('firewall:update', {
+        ts: Date.now(),
+        filter: this._lastPayload.filter,
+        nat: this._lastPayload.nat,
+        mangle: this._lastPayload.mangle,
+        topByHits: this._lastPayload.topByHits,
+      });
+      this.state.lastFirewallTs = Date.now();
+      delete this.state.lastFirewallErr;
+      return;
+    }
+
     const filterRules = this.processChain(filter);
     const natRules    = this.processChain(nat);
     const mangleRules = this.processChain(mangle);
     const topByHits   = [...filterRules,...natRules,...mangleRules].filter(r=>r.packets>0).sort((a,b)=>b.packets-a.packets).slice(0,this.topN);
+    this._lastFingerprint = fingerprint;
+    this._lastPayload = { filter: filterRules, nat: natRules, mangle: mangleRules, topByHits };
     this.io.emit('firewall:update', { ts:Date.now(), filter:filterRules, nat:natRules, mangle:mangleRules, topByHits });
     this.state.lastFirewallTs = Date.now();
     delete this.state.lastFirewallErr;

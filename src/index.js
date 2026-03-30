@@ -12,6 +12,7 @@ const express = require('express');
 const http    = require('http');
 const { Server } = require('socket.io');
 const { z } = require('zod');
+const { RouterOsInputError, sanitizeRosId, sanitizePeerName, sanitizeAddressListName } = require('./util/routerosSanitize');
 
 const ROS                  = require('./routeros/client');
 const { fetchInterfaces }  = require('./collectors/interfaces');
@@ -152,12 +153,16 @@ app.post('/api/dhcp/make-static', csrfProtection, requireAuth, requirePageWrite(
     if (!lease) return res.status(404).json({ error: 'Lease not found' });
     if (lease.type === 'static') return res.status(400).json({ error: 'Already static' });
     if (!lease.id) return res.status(400).json({ error: 'No lease ID — try again after next poll' });
-    await ros.write('/ip/dhcp-server/lease/make-static', ['=.id=' + lease.id]);
+    const safeLeaseId = sanitizeRosId(lease.id, 'lease id');
+    await ros.write('/ip/dhcp-server/lease/make-static', ['=.id=' + safeLeaseId]);
     console.log(`[dhcp] made static: ${ip} id=${lease.id}`);
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
       return res.status(400).json({ error: e.errors[0].message });
+    }
+    if (e instanceof RouterOsInputError) {
+      return res.status(400).json({ error: e.message });
     }
     console.error('[dhcp] make-static failed:', e.message);
     res.status(500).json({ error: e.message });
@@ -172,12 +177,16 @@ app.post('/api/dhcp/remove-static', csrfProtection, requireAuth, requirePageWrit
     if (!lease) return res.status(404).json({ error: 'Lease not found' });
     if (lease.type === 'dynamic') return res.status(400).json({ error: 'Lease is already dynamic' });
     if (!lease.id) return res.status(400).json({ error: 'No lease ID — try again after next poll' });
-    await ros.write('/ip/dhcp-server/lease/remove', ['=.id=' + lease.id]);
+    const safeLeaseId = sanitizeRosId(lease.id, 'lease id');
+    await ros.write('/ip/dhcp-server/lease/remove', ['=.id=' + safeLeaseId]);
     console.log(`[dhcp] removed static lease: ${ip} id=${lease.id}`);
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
       return res.status(400).json({ error: e.errors[0].message });
+    }
+    if (e instanceof RouterOsInputError) {
+      return res.status(400).json({ error: e.message });
     }
     console.error('[dhcp] remove-static failed:', e.message);
     res.status(500).json({ error: e.message });
@@ -260,6 +269,7 @@ app.get('/api/wireguard/used-ips', requireAuth, requirePageRead('vpn'), async (r
 app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('vpn'), async (req, res) => {
   try {
     const { name, allowedAddress, addressList, clientEndpoint, clientAllowedAddress } = wireguardCreatePeerSchema.parse(req.body);
+    const safeName = sanitizePeerName(name);
     
     // Validate /32
     const ip = allowedAddress.split('/')[0];
@@ -281,8 +291,8 @@ app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('
     // Create peer on router
     await ros.write('/interface/wireguard/peers/add', [
       '=interface='          + WG_INTERFACE,
-      '=comment='            + name,
-      '=name='               + name,
+      '=comment='            + safeName,
+      '=name='               + safeName,
       '=public-key='         + publicKey,
       '=preshared-key='      + psk,
       '=allowed-address='    + ip + '/32',
@@ -294,16 +304,17 @@ app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('
 
     // Add to address list if specified
     if (addressList && addressList.startsWith(WG_LIST_PREFIX)) {
+      const safeAddressList = sanitizeAddressListName(addressList, WG_LIST_PREFIX);
       await ros.write('/ip/firewall/address-list/add', [
-        '=list='    + addressList,
+        '=list='    + safeAddressList,
         '=address=' + ip + '/32',
-        '=comment=' + name,
+        '=comment=' + safeName,
       ]);
     }
 
     // Build client config
     const config = buildConfig({
-      name, privateKey, psk, serverPublicKey,
+      name: safeName, privateKey, psk, serverPublicKey,
       allowedAddress:        ip + '/32',
       clientAddress:         ip + '/' + WG_CLIENT_PREFIX,
       clientDns:             WG_CLIENT_DNS,
@@ -319,6 +330,9 @@ app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('
     if (e instanceof z.ZodError) {
       return res.status(400).json({ error: e.errors[0].message });
     }
+    if (e instanceof RouterOsInputError) {
+      return res.status(400).json({ error: e.message });
+    }
     console.error('[wireguard] create peer failed:', e.message);
     res.status(500).json({ error: e.message });
   }
@@ -327,15 +341,15 @@ app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('
 // Update WireGuard peer (enable/disable, address list change)
 app.patch('/api/wireguard/peers/:id', csrfProtection, requireAuth, requirePageWrite('vpn'), async (req, res) => {
   try {
-    const { id } = req.params;
+    const safePeerId = sanitizeRosId(req.params.id, 'peer id');
     const { disabled, addressList, currentList, allowedAddress } = wireguardUpdatePeerSchema.parse(req.body);
     
     // Enable/disable
     if (typeof disabled !== 'undefined') {
       if (disabled) {
-        await ros.write('/interface/wireguard/peers/disable', ['=.id=' + id]);
+        await ros.write('/interface/wireguard/peers/disable', ['=.id=' + safePeerId]);
       } else {
-        await ros.write('/interface/wireguard/peers/enable', ['=.id=' + id]);
+        await ros.write('/interface/wireguard/peers/enable', ['=.id=' + safePeerId]);
       }
     }
     // Address list change
@@ -346,26 +360,32 @@ app.patch('/api/wireguard/peers/:id', csrfProtection, requireAuth, requirePageWr
       for (const r of (rows || [])) {
         if ((r.list || '').startsWith(WG_LIST_PREFIX) &&
             (r.address === ip + '/32' || r.address === ip)) {
-          await ros.write('/ip/firewall/address-list/remove', ['=.id=' + r['.id']]);
+          const safeAddressListId = sanitizeRosId(r['.id'], 'address list id');
+          await ros.write('/ip/firewall/address-list/remove', ['=.id=' + safeAddressListId]);
         }
       }
       // Add to new list if specified
       if (addressList) {
+        const safeAddressList = sanitizeAddressListName(addressList, WG_LIST_PREFIX);
         const peers = await ros.write('/interface/wireguard/peers/print');
-        const peer  = (peers || []).find(p => p['.id'] === id);
+        const peer  = (peers || []).find(p => p['.id'] === safePeerId);
         const comment = peer ? (peer.comment || peer.name || '') : '';
+        const safeComment = String(comment || 'WireGuard peer').replace(/[=\r\n\0]/g, ' ').slice(0, 64);
         await ros.write('/ip/firewall/address-list/add', [
-          '=list='    + addressList,
+          '=list='    + safeAddressList,
           '=address=' + ip + '/32',
-          '=comment=' + comment,
+          '=comment=' + safeComment,
         ]);
       }
     }
-    console.log('[wireguard] updated peer:', id);
+    console.log('[wireguard] updated peer:', safePeerId);
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
       return res.status(400).json({ error: e.errors[0].message });
+    }
+    if (e instanceof RouterOsInputError) {
+      return res.status(400).json({ error: e.message });
     }
     console.error('[wireguard] update peer failed:', e.message);
     res.status(500).json({ error: e.message });
