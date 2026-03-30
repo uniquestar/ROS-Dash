@@ -52,8 +52,8 @@ app.use(session({
 const csrf = require('csurf');
 const csrfProtection = csrf({ cookie: false });
 
-// Serve CSRF token for AJAX requests (no CSRF check needed here)
-app.get('/api/csrf-token', (req, res) => {
+// Serve CSRF token for AJAX requests
+app.get('/api/csrf-token', csrfProtection, (req, res) => {
   res.json({ csrfToken: req.csrfToken() });
 });
 
@@ -456,6 +456,14 @@ app.get('/logo.png', (_req, res) => {
 
 // All other static files require auth
 app.use(requireAuth, express.static('public'));
+
+// Return clear 403 responses for invalid or missing CSRF tokens.
+app.use((err, _req, res, next) => {
+  if (err && err.code === 'EBADCSRFTOKEN') {
+    return res.status(403).json({ error: 'Invalid CSRF token' });
+  }
+  return next(err);
+});
 
 const server = http.createServer(app);
 const io = new Server(server);
