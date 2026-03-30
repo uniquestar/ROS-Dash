@@ -11,6 +11,7 @@ const { makeToken, requireAuth, requireAuthSocket, requireAdmin, validateUser, g
 const express = require('express');
 const http    = require('http');
 const { Server } = require('socket.io');
+const { z } = require('zod');
 
 const ROS                  = require('./routeros/client');
 const { fetchInterfaces }  = require('./collectors/interfaces');
@@ -52,6 +53,54 @@ app.use(session({
 const csrf = require('csurf');
 const csrfProtection = csrf({ cookie: false });
 
+// ── Validation Schemas ───────────────────────────────────────────────────
+
+// IP address regex: matches standard IPv4 format
+const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
+
+// DHCP schemas
+const dhcpMakeStaticSchema = z.object({
+  ip: z.string().regex(ipRegex, 'Invalid IP address'),
+});
+
+const dhcpRemoveStaticSchema = z.object({
+  ip: z.string().regex(ipRegex, 'Invalid IP address'),
+});
+
+// WireGuard schemas
+const wireguardCreatePeerSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  allowedAddress: z.string().regex(/^192\.168\.168\.\d{1,3}\/32$/, 'Allowed address must be in 192.168.168.0/24 with /32 CIDR'),
+  clientEndpoint: z.string().regex(/^[\w\-.]+(:\d+)?$/, 'Invalid client endpoint format'),
+  addressList: z.string().optional(),
+  clientAllowedAddress: z.string().optional(),
+});
+
+const wireguardUpdatePeerSchema = z.object({
+  disabled: z.boolean().optional(),
+  addressList: z.string().optional(),
+  currentList: z.string().optional(),
+  allowedAddress: z.string().optional(),
+});
+
+// User schemas
+const userCreateSchema = z.object({
+  username: z.string().min(1, 'Username is required').max(50, 'Username too long'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+});
+
+const userPasswordSchema = z.object({
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+});
+
+// Permissions schemas
+const permissionSchema = z.object({
+  username: z.string().min(1, 'Username is required'),
+  pageKey: z.string().min(1, 'Page key is required'),
+  canRead: z.boolean().optional(),
+  canWrite: z.boolean().optional(),
+});
+
 // Serve CSRF token for AJAX requests
 app.get('/api/csrf-token', csrfProtection, (req, res) => {
   res.json({ csrfToken: req.csrfToken() });
@@ -78,17 +127,19 @@ app.get('/api/wanips', requireAuth, requirePageRead('vpn'), (req, res) => {
 
 // Make DHCP lease static
 app.post('/api/dhcp/make-static', csrfProtection, requireAuth, requirePageWrite('dhcp'), async (req, res) => {
-  const { ip } = req.body;
-  if (!ip) return res.status(400).json({ error: 'ip required' });
-  const lease = dhcpLeases.getLeaseByIP(ip);
-  if (!lease) return res.status(404).json({ error: 'Lease not found' });
-  if (lease.type === 'static') return res.status(400).json({ error: 'Already static' });
-  if (!lease.id) return res.status(400).json({ error: 'No lease ID — try again after next poll' });
   try {
+    const { ip } = dhcpMakeStaticSchema.parse(req.body);
+    const lease = dhcpLeases.getLeaseByIP(ip);
+    if (!lease) return res.status(404).json({ error: 'Lease not found' });
+    if (lease.type === 'static') return res.status(400).json({ error: 'Already static' });
+    if (!lease.id) return res.status(400).json({ error: 'No lease ID — try again after next poll' });
     await ros.write('/ip/dhcp-server/lease/make-static', ['=.id=' + lease.id]);
     console.log(`[dhcp] made static: ${ip} id=${lease.id}`);
     res.json({ ok: true });
   } catch(e) {
+    if (e instanceof z.ZodError) {
+      return res.status(400).json({ error: e.errors[0].message });
+    }
     console.error('[dhcp] make-static failed:', e.message);
     res.status(500).json({ error: e.message });
   }
@@ -96,17 +147,19 @@ app.post('/api/dhcp/make-static', csrfProtection, requireAuth, requirePageWrite(
 
 // Remove static DHCP lease
 app.post('/api/dhcp/remove-static', csrfProtection, requireAuth, requirePageWrite('dhcp'), async (req, res) => {
-  const { ip } = req.body;
-  if (!ip) return res.status(400).json({ error: 'ip required' });
-  const lease = dhcpLeases.getLeaseByIP(ip);
-  if (!lease) return res.status(404).json({ error: 'Lease not found' });
-  if (lease.type === 'dynamic') return res.status(400).json({ error: 'Lease is already dynamic' });
-  if (!lease.id) return res.status(400).json({ error: 'No lease ID — try again after next poll' });
   try {
+    const { ip } = dhcpRemoveStaticSchema.parse(req.body);
+    const lease = dhcpLeases.getLeaseByIP(ip);
+    if (!lease) return res.status(404).json({ error: 'Lease not found' });
+    if (lease.type === 'dynamic') return res.status(400).json({ error: 'Lease is already dynamic' });
+    if (!lease.id) return res.status(400).json({ error: 'No lease ID — try again after next poll' });
     await ros.write('/ip/dhcp-server/lease/remove', ['=.id=' + lease.id]);
     console.log(`[dhcp] removed static lease: ${ip} id=${lease.id}`);
     res.json({ ok: true });
   } catch(e) {
+    if (e instanceof z.ZodError) {
+      return res.status(400).json({ error: e.errors[0].message });
+    }
     console.error('[dhcp] remove-static failed:', e.message);
     res.status(500).json({ error: e.message });
   }
@@ -189,17 +242,13 @@ app.get('/api/wireguard/used-ips', requireAuth, requirePageRead('vpn'), async (r
 
 // Create new WireGuard peer
 app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('vpn'), async (req, res) => {
-  const { name, allowedAddress, addressList, clientEndpoint, clientAllowedAddress } = req.body;
-  if (!name || !allowedAddress || !clientEndpoint) {
-    return res.status(400).json({ error: 'name, allowedAddress and clientEndpoint are required' });
-  }
-  // Validate /32
-  const ip = allowedAddress.split('/')[0];
-  const ipRe = /^192\.168\.168\.\d{1,3}$/;
-  if (!ipRe.test(ip)) return res.status(400).json({ error: 'Allowed address must be in 192.168.168.0/24' });
-
-  // Check for duplicate
   try {
+    const { name, allowedAddress, addressList, clientEndpoint, clientAllowedAddress } = wireguardCreatePeerSchema.parse(req.body);
+    
+    // Validate /32
+    const ip = allowedAddress.split('/')[0];
+
+    // Check for duplicate
     const existing = await ros.write('/interface/wireguard/peers/print');
     const used = (existing || []).map(p => (p['allowed-address'] || '').split('/')[0]);
     if (used.includes(ip)) return res.status(409).json({ error: 'IP address ' + ip + ' is already in use' });
@@ -251,6 +300,9 @@ app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('
     res.json({ ok: true, config, publicKey });
 
   } catch(e) {
+    if (e instanceof z.ZodError) {
+      return res.status(400).json({ error: e.errors[0].message });
+    }
     console.error('[wireguard] create peer failed:', e.message);
     res.status(500).json({ error: e.message });
   }
@@ -258,9 +310,10 @@ app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('
 
 // Update WireGuard peer (enable/disable, address list change)
 app.patch('/api/wireguard/peers/:id', csrfProtection, requireAuth, requirePageWrite('vpn'), async (req, res) => {
-  const { id } = req.params;
-  const { disabled, addressList, currentList, allowedAddress } = req.body;
   try {
+    const { id } = req.params;
+    const { disabled, addressList, currentList, allowedAddress } = wireguardUpdatePeerSchema.parse(req.body);
+    
     // Enable/disable
     if (typeof disabled !== 'undefined') {
       if (disabled) {
@@ -295,6 +348,9 @@ app.patch('/api/wireguard/peers/:id', csrfProtection, requireAuth, requirePageWr
     console.log('[wireguard] updated peer:', id);
     res.json({ ok: true });
   } catch(e) {
+    if (e instanceof z.ZodError) {
+      return res.status(400).json({ error: e.errors[0].message });
+    }
     console.error('[wireguard] update peer failed:', e.message);
     res.status(500).json({ error: e.message });
   }
@@ -405,20 +461,35 @@ app.get('/api/users', requireAuth, requirePageRead('users'), (_req, res) => {
 
 // Add user — requires users:write
 app.post('/api/users', csrfProtection, requireAuth, requirePageWrite('users'), (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
-  if (getUser(username)) return res.status(409).json({ error: 'User already exists' });
-  createUser(username, hashPassword(password), new Date().toISOString());
-  res.json({ ok: true });
+  try {
+    const { username, password } = userCreateSchema.parse(req.body);
+    if (getUser(username)) return res.status(409).json({ error: 'User already exists' });
+    createUser(username, hashPassword(password), new Date().toISOString());
+    res.json({ ok: true });
+  } catch(e) {
+    if (e instanceof z.ZodError) {
+      return res.status(400).json({ error: e.errors[0].message });
+    }
+    console.error('[users] create user failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Change password — requires users:write
 app.patch('/api/users/:username', csrfProtection, requireAuth, requirePageWrite('users'), (req, res) => {
-  const { username } = req.params;
-  const { password } = req.body;
-  if (!getUser(username)) return res.status(404).json({ error: 'User not found' });
-  if (password) updatePassword(username, hashPassword(password));
-  res.json({ ok: true });
+  try {
+    const { username } = req.params;
+    const { password } = userPasswordSchema.parse(req.body);
+    if (!getUser(username)) return res.status(404).json({ error: 'User not found' });
+    updatePassword(username, hashPassword(password));
+    res.json({ ok: true });
+  } catch(e) {
+    if (e instanceof z.ZodError) {
+      return res.status(400).json({ error: e.errors[0].message });
+    }
+    console.error('[users] update password failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Delete user — requires users:write
@@ -436,11 +507,19 @@ app.get('/api/pages', requireAuth, requirePageRead('users'), (_req, res) => {
 
 // Set permission — requires users:write
 app.post('/api/permissions', csrfProtection, requireAuth, requirePageWrite('users'), (req, res) => {
-  const { username, pageKey, canRead, canWrite } = req.body;
-  const user = getUser(username);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  setPermission(user.id, pageKey, canRead, canWrite);
-  res.json({ ok: true });
+  try {
+    const { username, pageKey, canRead, canWrite } = permissionSchema.parse(req.body);
+    const user = getUser(username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    setPermission(user.id, pageKey, canRead, canWrite);
+    res.json({ ok: true });
+  } catch(e) {
+    if (e instanceof z.ZodError) {
+      return res.status(400).json({ error: e.errors[0].message });
+    }
+    console.error('[permissions] set permission failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Serve login page specifically — no auth required
