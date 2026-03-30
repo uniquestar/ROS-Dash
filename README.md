@@ -120,6 +120,14 @@ vim .env
 - `DASH_SECRET` — a strong random string (≥32 characters) used to sign session tokens. Generate with: `openssl rand -base64 32`
 - `ROUTER_HOST`, `ROUTER_PORT`, `ROUTER_USER`, `ROUTER_PASS` — RouterOS API credentials
 
+**WireGuard environment variables:**
+- `WG_INTERFACE` — WireGuard interface name on RouterOS (default `WireGuard`)
+- `WG_LIST_PREFIX` — firewall address-list prefix used for WireGuard groups (default `WG-`)
+- `WG_SERVER_LISTEN_PORT` — server listen port written into generated client configs (default `13231`)
+- `WG_ALLOWED_SUBNET` — allowed subnet used for peer address validation (default `192.168.168.0/24`)
+- `WG_CLIENT_PREFIX` — client address prefix length (default `24`)
+- `WG_CLIENT_DNS` — DNS server pushed to client configs (default `192.168.168.1`)
+
 Create the database and your first admin user:
 ```bash
 npm install
