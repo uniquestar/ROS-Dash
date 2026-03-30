@@ -13,10 +13,12 @@ class DhcpNetworksCollector extends BaseCollector {
     this.lanCidrs = [];
     this.networks = [];
     this.vlanMap  = new Map(); // ifaceName -> [vlanIds]
+    this.allVlans = [];
   }
 
   getLanCidrs() { return this.lanCidrs; }
   getVlansForInterface(ifaceName) { return this.vlanMap.get(ifaceName) || []; }
+  getAllVlans() { return this.allVlans || []; }
   
   async tick() {
     const [nets, addrs, vlans] = await Promise.allSettled([
@@ -45,16 +47,19 @@ class DhcpNetworksCollector extends BaseCollector {
     // Build VLAN map: interface -> [vlanIds]
     const vlanRows = vlans.status === 'fulfilled' ? (vlans.value || []) : [];
     const vlanMap  = new Map();
+    const allVlans = new Set();
 
     for (const v of vlanRows) {
       const iface = v.interface || '';
-      const vid   = parseInt(v['vlan-id']);
+      const vid   = parseInt(v['vlan-id'], 10);
       if (!iface || !vid) continue;
       if (iface === wanIface) continue; // skip WAN interface
+      allVlans.add(vid);
       if (!vlanMap.has(iface)) vlanMap.set(iface, []);
       vlanMap.get(iface).push(vid);
     }
     this.vlanMap = vlanMap;
+    this.allVlans = Array.from(allVlans).sort((a, b) => a - b);
 
     this.lanCidrs = Array.from(new Set(lanCidrs));
     this.networks = networks;
