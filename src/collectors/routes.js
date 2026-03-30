@@ -1,17 +1,15 @@
 /**
  * Routes collector — polls /ip/route/print where active=yes
  */
-class RoutesCollector {
+const BaseCollector = require('./BaseCollector');
+
+class RoutesCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state }) {
-    this.ros    = ros;
-    this.io     = io;
-    this.pollMs = pollMs || 30000;
-    this.state  = state;
-    this.timer  = null;
+    super({ name: 'routes', ros, pollMs: pollMs || 30000, state });
+    this.io = io;
   }
 
   async tick() {
-    if (!this.ros.connected) return;
     const rows = await this.ros.write('/ip/route/print', ['?active=yes']);
     const seen = new Set();
     const routes = (rows || []).map(r => {
@@ -37,7 +35,6 @@ class RoutesCollector {
       seen.add(r.dst);
       return true;
     })
-    
     .sort((a, b) => {
       // First sort by distance
       if (a.distance !== b.distance) return a.distance - b.distance;
@@ -53,20 +50,6 @@ class RoutesCollector {
 
     this.io.emit('routes:update', { ts: Date.now(), routes });
     this.state.lastRoutesTs = Date.now();
-
-    
-  }
-
-  start() {
-    const run = async () => {
-      try { await this.tick(); } catch(e) {
-        console.error('[routes]', e && e.message ? e.message : e);
-      }
-    };
-    run();
-    this.timer = setInterval(run, this.pollMs);
-    this.ros.on('close',     () => { if (this.timer) { clearInterval(this.timer); this.timer = null; } });
-    this.ros.on('connected', () => { this.timer = this.timer || setInterval(run, this.pollMs); run(); });
   }
 }
 

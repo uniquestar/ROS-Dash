@@ -5,6 +5,7 @@ try { geoip = require('geoip-lite'); } catch(e) { console.warn('[connections] ge
  * node-routeros allows this to run concurrently with active streams since
  * each write() gets a unique tag for demultiplexing.
  */
+const BaseCollector = require('./BaseCollector');
 const { isInCidrs } = require('../util/ip');
 
 function makeDestKey(c) {
@@ -23,19 +24,16 @@ function isRFC1918(addr) {
          /^172\.(1[6-9]|2\d|3[01])\./.test(ip);
 }
 
-class ConnectionsCollector {
+class ConnectionsCollector extends BaseCollector {
   constructor({ ros, io, pollMs, topN, dhcpNetworks, dhcpLeases, arp, state }) {
-    this.ros = ros;
+    super({ name: 'connections', ros, pollMs, state });
     this.io = io;
-    this.pollMs = pollMs;
     this.topN = topN;
     this.dhcpNetworks = dhcpNetworks;
     this.dhcpLeases = dhcpLeases;
     this.arp = arp;
-    this.state = state;
     this.prevIds = new Set();
     this._talkers = null;
-    this.timer = null;
   }
 
   resolveName(ip) {
@@ -51,7 +49,6 @@ class ConnectionsCollector {
   }
 
   async tick() {
-    if (!this.ros.connected) return;
     const lanCidrs = this.dhcpNetworks.getLanCidrs();
 
     // node-routeros: write() is concurrent-safe, doesn't block streams
@@ -151,7 +148,7 @@ class ConnectionsCollector {
       .sort((a,b) => b[1]-a[1]).slice(0,10)
       .map(([port,count]) => ({ port, count }));
 
-  if (this._talkers) this._talkers.updateFromConnections(topSources);
+    if (this._talkers) this._talkers.updateFromConnections(topSources);
 
     this.io.emit('conn:update', {
       ts: Date.now(), total: (conns || []).length, newSinceLast,
@@ -161,20 +158,17 @@ class ConnectionsCollector {
     delete this.state.lastConnsErr;
   }
 
-  start() {
-    const run = async () => {
-      try { await this.tick(); } catch (e) {
-        const msg = String(e && e.message ? e.message : e);
-        // RouterOS races: connections expire between list and fetch — not a real error
-        if (msg.includes('no such item')) return;
-        this.state.lastConnsErr = msg;
-        console.error('[connections]', this.state.lastConnsErr);
-      }
-    };
-    run();
-    this.timer = setInterval(run, this.pollMs);
-    this.ros.on('close', () => { if (this.timer) { clearInterval(this.timer); this.timer = null; } });
-    this.ros.on('connected', () => { this.timer = this.timer || setInterval(run, this.pollMs); run(); });
+  async _runTick() {
+    if (!this.ros.connected) return;
+    try {
+      await this.tick();
+    } catch (e) {
+      const msg = e && e.message ? e.message : String(e);
+      // RouterOS races: connections expire between list and fetch — not a real error
+      if (msg.includes('no such item')) return;
+      console.error(`[${this.name}] tick error:`, msg);
+      this.state[`last${this.name}Err`] = msg;
+    }
   }
 }
 

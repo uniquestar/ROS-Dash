@@ -1,0 +1,125 @@
+/**
+ * BaseCollector — shared lifecycle, timer, and error handling for all collectors.
+ * 
+ * Subclasses should implement:
+ * - tick() — called on each poll cycle
+ * - onConnected() — (optional) called when reconnected; use for full restart
+ * - onDisconnected() — (optional) called when disconnected; use for cleanup
+ */
+
+class BaseCollector {
+  constructor({ name, ros, pollMs = 5000, state } = {}) {
+    this.name = name || this.constructor.name;
+    this.ros = ros;
+    this.pollMs = pollMs;
+    this.state = state || {};
+    this.timer = null;
+    this.isRunning = false;
+  }
+
+  /**
+   * Subclasses override this to implement poll/stream logic.
+   */
+  async tick() {
+    throw new Error(`${this.name}: tick() not implemented`);
+  }
+
+  /**
+   * Called when ros connection is established/re-established.
+   * Subclasses override for custom reconnection logic (e.g., restart streams).
+   */
+  async onConnected() {
+    // Default: nothing
+  }
+
+  /**
+   * Called when ros connection is lost.
+   * Subclasses override for cleanup (e.g., close streams, clear caches).
+   */
+  async onDisconnected() {
+    // Default: nothing
+  }
+
+  /**
+   * Start the collector: run tick once immediately, then set up interval and listeners.
+   */
+  async start() {
+    if (this.isRunning) return;
+    this.isRunning = true;
+
+    // Initial tick
+    await this._runTick();
+
+    // Start polling interval
+    this._startTick();
+
+    // Listen for reconnection
+    this.ros.on('connected', () => this._onConnected());
+    this.ros.on('close', () => this._onDisconnected());
+  }
+
+  /**
+   * Stop the collector: clear interval and close any streams.
+   */
+  stop() {
+    if (!this.isRunning) return;
+    this.isRunning = false;
+    this._stopTick();
+    this.ros.removeAllListeners('connected');
+    this.ros.removeAllListeners('close');
+  }
+
+  /**
+   * Internal: start polling interval.
+   */
+  _startTick() {
+    if (this.timer) return; // already running
+    if (!this.ros.connected) return;
+
+    this.timer = setInterval(() => this._runTick(), this.pollMs);
+  }
+
+  /**
+   * Internal: stop polling interval.
+   */
+  _stopTick() {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
+
+  /**
+   * Internal: wrapper around tick() with error handling.
+   */
+  async _runTick() {
+    if (!this.ros.connected) return;
+    try {
+      await this.tick();
+    } catch (e) {
+      const msg = e && e.message ? e.message : String(e);
+      console.error(`[${this.name}] tick error:`, msg);
+      this.state[`last${this.name}Err`] = msg;
+    }
+  }
+
+  /**
+   * Internal: called when ros reconnects.
+   */
+  async _onConnected() {
+    this._stopTick(); // clear old timer
+    await this.onConnected(); // subclass hook
+    this._startTick(); // restart polling
+    await this._runTick(); // immediate update
+  }
+
+  /**
+   * Internal: called when ros disconnects.
+   */
+  async _onDisconnected() {
+    this._stopTick();
+    await this.onDisconnected(); // subclass hook
+  }
+}
+
+module.exports = BaseCollector;
