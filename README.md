@@ -434,4 +434,4 @@ Third-party attributions — see [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES)
 
 ## Disclaimer
 
-ROS-Dash is an independent, community-built project and is **not affiliated with, endorsed by, or associated with MikroTik SIA** in any way. MikroTik and RouterOS are trademarks of MikroTik SIA. All product names and trademarks are the property of their respective owners.
+ROS-Dash is an independent, community-built project and is **not affiliated with, endorsed by, or associated with MikroTik SIA, Cisco Systems, Inc., or their affiliates** in any way. MikroTik, RouterOS, Cisco, and Catalyst are trademarks of their respective owners. All other product names, logos, and trademarks referenced by this project remain the property of their respective owners.
