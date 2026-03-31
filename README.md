@@ -31,7 +31,7 @@ Forked and significantly enhanced from [MikroDash](https://github.com/SecOps-7/M
 | DHCP | Active DHCP leases with hostname, IP, MAC, status, lease type, and switch port location. Users with dhcp:write permission can Reserve (make static) or Release (remove static) leases directly from the table |
 | VPN | All WireGuard peers (active + idle) as tiles sorted active-first, with allowed IPs, endpoint, handshake, and traffic counters |
 | Connections | World map with animated arcs to destination countries, per-country protocol breakdown, top ports panel, and click-through connection detail modal |
-| Switches | Graphical port visualiser and port allocation table — populated via SNMP from Cisco Catalyst switches |
+| Switches | Graphical port visualiser and port allocation table — populated via SNMP from Cisco Catalyst switches, with optional per-switch write controls |
 | Routes | Active routing table with flags, destination, gateway, distance, and type |
 | Address Lists | Firewall address lists grouped by list name with address, comment, and creation date |
 | Firewall | Top hits, Filter, NAT, and Mangle rule tables with packet counts |
@@ -43,6 +43,8 @@ Forked and significantly enhanced from [MikroDash](https://github.com/SecOps-7/M
 - **Session tokens** — HMAC-signed, 8-hour expiry, all sessions invalidated on server restart
 - **SQLite-backed user store** — replaces flat `users.json`, supports concurrent access
 - **Granular per-page permissions** — each user has independent read/write access per page
+- **Switch Admin tier** — users with `switchadmin:write` can manage per-switch write grants from the Switches page
+- **Per-switch write grants** — users can be allowed to manage only specific switches while retaining read-only access to the rest
 - **Admin users** — full access to all pages including Users management
 - **Viewer users** — dashboard and about access by default; additional pages granted by admin
 - **Protected WebSocket** — unauthenticated socket connections rejected server-side
@@ -53,8 +55,9 @@ ROS-Dash polls Cisco Catalyst switches via SNMPv2c to build a complete port map,
 
 - Polls MAC address tables per VLAN via VLAN-context SNMP (`community@vlan`)
 - VLANs discovered dynamically from Mikrotik VLAN interface config — no hardcoding required
-- Supports per-port access VLAN remap from the Switch Visualiser when `writeCommunity` is configured
-- Collects port status (up/down), PoE delivery status, and connected device descriptions
+- Supports per-port access VLAN remap, shut/no-shut, and write-memory from the Switch Visualiser when `writeCommunity` is configured
+- Write actions are enforced per switch: a user must either have `switchadmin:write` or an explicit grant for that switch
+- Collects port admin state, link state, PoE delivery status, live PoE power, and connected device descriptions
 - Supports single switches and multi-switch stacks — stack members displayed as separate switch panels
 - Uplink ports included in visualiser (shown in purple), excluded from MAC table reporting
 - Results surfaced on the Switches page and inline on the DHCP page (Switch + Port columns)
@@ -64,9 +67,11 @@ ROS-Dash polls Cisco Catalyst switches via SNMPv2c to build a complete port map,
 The Switches page includes a graphical port layout mirroring the physical switch faceplate:
 
 - Ports laid out in pairs, odd ports top row / even ports bottom row (left to right)
-- Colour coded: **blue** = up, **green** = up + PoE delivering, **grey** = down, **purple** = uplink
+- Colour coded: **blue** = up, **green** = up + PoE delivering, **grey** = down, **purple** = uplink, **red X / red border** = administratively disabled
 - Green dot indicator on ports actively delivering PoE power
-- Click any port for detail popup — MAC address, hostname, IP, VLAN, PoE status, device type
+- Click any port for detail popup — MAC address, hostname, IP, VLAN, admin state, PoE status, live PoE power, device type
+- Users with write access to the selected switch can change access VLANs, shut/no-shut ports, and write memory directly from the visualiser
+- Users with `switchadmin:write` also get a `Manage Access` control to grant/revoke per-switch write access for other users
 - Multi-switch stacks show all members simultaneously, one panel per switch
 - Auto-refreshes every 120 seconds to reflect switch changes
 
@@ -88,7 +93,7 @@ ROS-Dash includes built-in authentication, CSRF protection, and is suitable for 
 - **CSRF protection** — all state-changing endpoints require valid CSRF tokens; same-site request forgery attacks are prevented
 - **Input validation** — all write endpoints validate request bodies with zod schemas (DHCP, WireGuard, users, permissions); malformed requests rejected with 400 errors
 - **Hardened secrets** — `DASH_SECRET` is required at startup (no weak fallback); session tokens use HMAC-SHA256 signing
-- **Session validation** — 8-hour token expiry, automatic invalidation on server restart, per-page access control
+- **Session validation** — 8-hour token expiry, automatic invalidation on server restart, per-page and per-switch access control
 - **Protected WebSocket** — unauthenticated socket connections rejected at handshake
 - **Consistent error responses** — shared error formatting utility prevents malformed `500` payloads and `[object Object]` log output
 
@@ -261,9 +266,10 @@ Create `switches.json` in the project root (or on the server alongside `.env`). 
 | `name` | Display name shown in the dashboard |
 | `ip` | Management IP of the switch |
 | `community` | SNMPv2c community string |
-| `writeCommunity` | SNMPv2c write community used for port VLAN remap actions (optional; leave empty/omit to disable writes) |
+| `writeCommunity` | SNMPv2c write community used for switch write actions such as VLAN changes, port disable/enable, and write memory (optional; leave empty/omit to disable writes) |
 | `mikrotikInterface` | Mikrotik interface name this switch connects to — used to discover VLANs dynamically |
 | `defaultVlan` | Native/default VLAN on the switch (not reflected in Mikrotik VLAN config) |
+| `poePowerDivisor` | Optional fallback divisor for switch models that report Cisco PoE fallback values in non-watt units |
 | `uplinkPorts` | Uplink port name(s) — shown in visualiser as uplinks, excluded from MAC table |
 
 VLANs are discovered automatically from `/interface/vlan/print` on the Mikrotik — any new VLANs added to the router will be picked up without changing `switches.json`.
@@ -287,7 +293,22 @@ sudo docker exec -it ros-dash node src/add-user.js admin yourpassword admin
 
 Or via the web UI at the Users page (requires users:write permission).
 
-Permissions are configured per user per page via the Users page. Changes take effect on the user's next login.
+Permissions are configured per user per page via the Users page. Per-page permission changes take effect on the user's next login.
+
+For switch management, access is split into two layers:
+
+- `switches:read` lets the user view the Switches page and open the visualiser
+- `switchadmin:write` lets the user manage per-switch write access for other users from the `Manage Access` button on the Switches page
+- Per-switch write grants let a user operate only the switches explicitly allowed to them
+
+Typical setup:
+
+- Give operational users `switches:read`
+- Treat `switches:write` as separate page permission metadata; actual switch write actions are controlled by `switchadmin:write` or per-switch grants
+- Give only senior admins `switchadmin:write`
+- Use `Manage Access` on the Switches page to grant specific switches to specific users
+
+Per-switch write grants are enforced live and do not require the target user to log out and back in again.
 
 > **Note:** User data is stored in `ros-dash.db` using SQLite WAL mode. The app checkpoints the WAL on shutdown to ensure data persists. Always use the build script to redeploy rather than manually restarting the container.
 
