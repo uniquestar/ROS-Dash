@@ -7,13 +7,14 @@ const { initDb } = require('./db');
 const dbPath = process.env.DB_PATH || path.join(process.cwd(), 'ros-dash.db');
 initDb(dbPath);
 
-const { makeToken, requireAuth, requireAuthSocket, requireAdmin, validateUser, getTokenUser, requirePageRead, requirePageWrite, requireSwitchWrite } = require('./auth');
+const { makeToken, verifyPassword, requireAuth, requireAuthSocket, requireAdmin, validateUser, getTokenUser, requirePageRead, requirePageWrite, requireSwitchWrite } = require('./auth');
 const express = require('express');
 const http    = require('http');
 const { Server } = require('socket.io');
 const { z } = require('zod');
 const { RouterOsInputError, sanitizeRosId, sanitizePeerName, sanitizeAddressListName } = require('./util/routerosSanitize');
 const { getErrorMessage } = require('./util/errors');
+const { validatePassword } = require('./util/passwordPolicy');
 
 const ROS                  = require('./routeros/client');
 const { fetchInterfaces }  = require('./collectors/interfaces');
@@ -107,11 +108,31 @@ const wireguardUpdatePeerSchema = z.object({
 // User schemas
 const userCreateSchema = z.object({
   username: z.string().min(1, 'Username is required').max(50, 'Username too long'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: z.string().min(1, 'Password is required').superRefine((val, ctx) => {
+    const issues = validatePassword(val);
+    for (const issue of issues) ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue });
+  }),
+  forcePasswordChange: z.boolean().optional(),
 });
 
 const userPasswordSchema = z.object({
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: z.string().min(1, 'Password is required').superRefine((val, ctx) => {
+    const issues = validatePassword(val);
+    for (const issue of issues) ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue });
+  }),
+  forcePasswordChange: z.boolean().optional(),
+});
+
+const selfPasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z.string().min(1, 'New password is required').superRefine((val, ctx) => {
+    const issues = validatePassword(val);
+    for (const issue of issues) ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue });
+  }),
+});
+
+const forcePwdSchema = z.object({
+  mustChangePassword: z.boolean(),
 });
 
 // Permissions schemas
@@ -591,7 +612,7 @@ app.post('/api/switch-permissions', csrfProtection, requireAuth, requirePageWrit
 app.get('/api/me', requireAuth, (req, res) => {
   const user = getTokenUser(req);
   if (!user) return res.status(401).json({ error: 'Unauthorised' });
-  res.json({ username: user.username, permissions: user.permissions || {} });
+  res.json({ username: user.username, permissions: user.permissions || {}, mustChangePassword: !!user.mustChangePassword });
 });
 
 // Logout route
@@ -602,7 +623,7 @@ app.get('/logout', (_req, res) => {
 
 // User management API
 const crypto_users = require('crypto');
-const { getAllUsers, getUser, createUser, updatePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages } = require('./db');
+const { getAllUsers, getUser, createUser, updatePassword, setMustChangePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages } = require('./db');
 
 function hashPassword(password) {
   const salt = crypto_users.randomBytes(16).toString('hex');
@@ -616,6 +637,7 @@ app.get('/api/users', requireAuth, requirePageRead('users'), (_req, res) => {
   const result = users.map(u => ({
     username: u.username,
     createdAt: u.created_at,
+    mustChangePassword: u.must_change_password === 1,
     permissions: getUserPermissions(u.id),
   }));
   res.json(result);
@@ -624,9 +646,9 @@ app.get('/api/users', requireAuth, requirePageRead('users'), (_req, res) => {
 // Add user — requires users:write
 app.post('/api/users', csrfProtection, requireAuth, requirePageWrite('users'), (req, res) => {
   try {
-    const { username, password } = userCreateSchema.parse(req.body);
+    const { username, password, forcePasswordChange } = userCreateSchema.parse(req.body);
     if (getUser(username)) return res.status(409).json({ error: 'User already exists' });
-    createUser(username, hashPassword(password), new Date().toISOString());
+    createUser(username, hashPassword(password), new Date().toISOString(), !!forcePasswordChange);
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
@@ -642,9 +664,9 @@ app.post('/api/users', csrfProtection, requireAuth, requirePageWrite('users'), (
 app.patch('/api/users/:username', csrfProtection, requireAuth, requirePageWrite('users'), (req, res) => {
   try {
     const { username } = req.params;
-    const { password } = userPasswordSchema.parse(req.body);
+    const { password, forcePasswordChange } = userPasswordSchema.parse(req.body);
     if (!getUser(username)) return res.status(404).json({ error: 'User not found' });
-    updatePassword(username, hashPassword(password));
+    updatePassword(username, hashPassword(password), { mustChangePassword: !!forcePasswordChange });
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
@@ -662,6 +684,49 @@ app.delete('/api/users/:username', csrfProtection, requireAuth, requirePageWrite
   if (!getUser(username)) return res.status(404).json({ error: 'User not found' });
   deleteUser(username);
   res.json({ ok: true });
+});
+
+app.post('/api/users/:username/force-password-change', csrfProtection, requireAuth, requirePageWrite('users'), (req, res) => {
+  try {
+    const { username } = req.params;
+    const { mustChangePassword } = forcePwdSchema.parse(req.body);
+    if (!getUser(username)) return res.status(404).json({ error: 'User not found' });
+    setMustChangePassword(username, mustChangePassword);
+    res.json({ ok: true });
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      return res.status(400).json({ error: e.errors[0].message });
+    }
+    const msg = getErrorMessage(e);
+    console.error('[users] force password change failed:', msg);
+    res.status(500).json({ error: msg });
+  }
+});
+
+app.post('/api/me/password', csrfProtection, requireAuth, (req, res) => {
+  try {
+    const tokenUser = getTokenUser(req);
+    if (!tokenUser) return res.status(401).json({ error: 'Unauthorised' });
+    if (tokenUser.id === null) return res.status(400).json({ error: 'Password change is not supported for environment-based users' });
+
+    const { currentPassword, newPassword } = selfPasswordSchema.parse(req.body);
+    const dbUser = getUser(tokenUser.username);
+    if (!dbUser) return res.status(404).json({ error: 'User not found' });
+    if (!verifyPassword(dbUser.password, currentPassword)) return res.status(400).json({ error: 'Current password is incorrect' });
+
+    updatePassword(tokenUser.username, hashPassword(newPassword), { mustChangePassword: false });
+    const authedUser = validateUser(tokenUser.username, newPassword);
+    const token = makeToken(authedUser);
+    res.setHeader('Set-Cookie', `rosdash_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);
+    res.json({ ok: true });
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      return res.status(400).json({ error: e.errors[0].message });
+    }
+    const msg = getErrorMessage(e);
+    console.error('[users] self password change failed:', msg);
+    res.status(500).json({ error: msg });
+  }
 });
 
 // Get pages list — requires users:read

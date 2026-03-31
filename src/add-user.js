@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
  * ROS-Dash user management — add/update users in SQLite
- * Usage: node src/add-user.js <username> <password> [role]
+ * Usage: node src/add-user.js <username> <password> [role] [--must-change]
  */
 const crypto = require('crypto');
 const path   = require('path');
 const { initDb, createUser, updatePassword, getUser, setPermission, getPages, getAllUsers } = require('./db');
+const { validatePassword } = require('./util/passwordPolicy');
 
 const dbPath = process.env.DB_PATH || path.join(process.cwd(), 'ros-dash.db');
 initDb(dbPath);
@@ -16,10 +17,21 @@ function hashPassword(password) {
   return `${salt}:${hash}`;
 }
 
-const [,, username, password, role] = process.argv;
+const args = process.argv.slice(2);
+const username = args[0];
+const password = args[1];
+const role = args[2];
+const mustChangePassword = args.includes('--must-change');
 if (!username || !password) {
-  console.error('Usage: node src/add-user.js <username> <password> [role]');
+  console.error('Usage: node src/add-user.js <username> <password> [role] [--must-change]');
   console.error('Roles: admin, viewer (default: viewer)');
+  process.exit(1);
+}
+
+const pwdIssues = validatePassword(password);
+if (pwdIssues.length) {
+  console.error('[ROS-Dash] Password policy failed:');
+  pwdIssues.forEach(i => console.error(' - ' + i));
   process.exit(1);
 }
 
@@ -28,11 +40,11 @@ const existing  = getUser(username);
 
 if (existing) {
   // Update password
-  updatePassword(username, hashPassword(password));
+  updatePassword(username, hashPassword(password), { mustChangePassword });
   console.log(`[ROS-Dash] Password updated for '${username}'`);
 } else {
   // Create new user
-  const userId = createUser(username, hashPassword(password), new Date().toISOString());
+  const userId = createUser(username, hashPassword(password), new Date().toISOString(), mustChangePassword);
   // Grant permissions based on role
   if (isAdmin) {
     const pages = getPages();

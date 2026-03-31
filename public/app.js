@@ -1931,6 +1931,9 @@ sendNotif = function(title, body, tag){
       if (currentPage !== 'dashboard' && currentPage !== 'about') {
         if (!perms[currentPage] || !perms[currentPage].read) showPage('dashboard');
       }
+      if (me.mustChangePassword) {
+        showForcedPasswordModal();
+      }
     }).catch(function(){});
 
   // ── Users page ───────────────────────────────────────────────────────────
@@ -1968,6 +1971,7 @@ sendNotif = function(title, body, tag){
       var created = u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—';
       var perms   = u.permissions || {};
       var write   = canWrite();
+      var forceFlag = !!u.mustChangePassword;
 
       // Permission grid rows
       var permRows = _pages.map(function(p){
@@ -1986,6 +1990,7 @@ sendNotif = function(title, body, tag){
       var actions = write
         ? '<div style="display:flex;gap:.4rem;margin-top:.75rem">'+
             '<button onclick="window._chgPwd(\''+esc(u.username)+'\')" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Change Password</button>'+
+            '<button onclick="window._togglePwdReset(\''+esc(u.username)+'\','+(forceFlag?'false':'true')+')" style="background:transparent;border:1px solid '+(forceFlag?'rgba(99,102,241,.45)':'var(--border)')+';color:'+(forceFlag?'#a5b4fc':'var(--text-muted)')+';border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">'+(forceFlag?'Clear Password Flag':'Require Password Change')+'</button>'+
             '<button onclick="window._delUser(\''+esc(u.username)+'\')" style="background:transparent;border:1px solid rgba(248,113,113,.3);color:#f87171;border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Delete User</button>'+
           '</div>'
         : '';
@@ -1995,6 +2000,7 @@ sendNotif = function(title, body, tag){
           '<div>'+
             '<span style="font-family:var(--font-mono);font-weight:600">'+esc(u.username)+'</span>'+
             '<span style="font-size:.72rem;color:var(--text-muted);margin-left:.75rem">Created '+created+'</span>'+
+            (forceFlag ? '<span style="font-size:.68rem;color:#f59e0b;margin-left:.65rem;border:1px solid rgba(245,158,11,.4);border-radius:999px;padding:.08rem .45rem">Password change required</span>' : '')+
           '</div>'+
         '</div>'+
         '<div class="card-body p-0">'+
@@ -2060,15 +2066,17 @@ sendNotif = function(title, body, tag){
   if (submitBtn) submitBtn.addEventListener('click', function(){
     var username = $('newUsername').value.trim();
     var password = $('newPassword').value;
+    var forcePasswordChange = !!$('newForcePwdChange').checked;
     var errEl    = $('addUserError');
     if (!username || !password) { errEl.textContent='Username and password required'; errEl.style.display='block'; return; }
     secureApiCall('/api/users', {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password, forcePasswordChange: forcePasswordChange })
     }).then(function(r){ return r.json(); }).then(function(d){
       if (d.error) { errEl.textContent=d.error; errEl.style.display='block'; return; }
       $('newUsername').value=''; $('newPassword').value='';
+      $('newForcePwdChange').checked = true;
       errEl.style.display='none';
       $('addUserForm').style.display='none';
       loadUsers();
@@ -2079,6 +2087,7 @@ sendNotif = function(title, body, tag){
   window._chgPwd = function(username) {
     $('chgPwdUsername').value = username;
     $('chgPwdNew').value = '';
+    $('chgPwdForce').checked = true;
     $('chgPwdError').style.display = 'none';
     $('chgPwdModal').style.display = 'flex';
   };
@@ -2088,17 +2097,27 @@ sendNotif = function(title, body, tag){
   if (pwdSubmit) pwdSubmit.addEventListener('click', function(){
     var username = $('chgPwdUsername').value;
     var password = $('chgPwdNew').value;
+    var forcePasswordChange = !!$('chgPwdForce').checked;
     var errEl    = $('chgPwdError');
     if (!password) { errEl.textContent='Password required'; errEl.style.display='block'; return; }
     secureApiCall('/api/users/'+username, {
       method: 'PATCH', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password })
+      body: JSON.stringify({ password: password, forcePasswordChange: forcePasswordChange })
     }).then(function(r){ return r.json(); }).then(function(d){
       if (d.error) { errEl.textContent=d.error; errEl.style.display='block'; return; }
       $('chgPwdModal').style.display='none';
+      loadUsers();
     });
   });
+
+  window._togglePwdReset = function(username, mustChangePassword) {
+    secureApiCall('/api/users/'+username+'/force-password-change', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mustChangePassword: !!mustChangePassword })
+    }).then(function(){ loadUsers(); });
+  };
 
   // Delete user
   window._delUser = function(username) {
@@ -2106,6 +2125,45 @@ sendNotif = function(title, body, tag){
     secureApiCall('/api/users/'+username, { method: 'DELETE', credentials: 'include' })
       .then(function(){ loadUsers(); });
   };
+
+  function showForcedPasswordModal() {
+    var modal = $('forcePwdModal');
+    if (!modal) return;
+    $('forcePwdCurrent').value = '';
+    $('forcePwdNew').value = '';
+    $('forcePwdError').style.display = 'none';
+    modal.style.display = 'flex';
+  }
+
+  var forceSubmit = $('forcePwdSubmit');
+  if (forceSubmit) forceSubmit.addEventListener('click', function(){
+    var currentPassword = $('forcePwdCurrent').value;
+    var newPassword = $('forcePwdNew').value;
+    var errEl = $('forcePwdError');
+    if (!currentPassword || !newPassword) {
+      errEl.textContent = 'Current and new password are required';
+      errEl.style.display = 'block';
+      return;
+    }
+    forceSubmit.disabled = true;
+    secureApiCall('/api/me/password', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword: currentPassword, newPassword: newPassword })
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if (d.error) {
+        errEl.textContent = d.error;
+        errEl.style.display = 'block';
+        forceSubmit.disabled = false;
+        return;
+      }
+      window.location.reload();
+    }).catch(function(){
+      errEl.textContent = 'Failed to update password';
+      errEl.style.display = 'block';
+      forceSubmit.disabled = false;
+    });
+  });
 
 })();
 
