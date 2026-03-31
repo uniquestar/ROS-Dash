@@ -24,7 +24,7 @@ function validateUser(username, password) {
   const user = getUser(username);
   if (user && verifyPassword(user.password, password)) {
     const perms = getUserPermissions(user.id);
-    return { username, id: user.id, permissions: perms };
+    return { username, id: user.id, permissions: perms, mustChangePassword: user.must_change_password === 1 };
   }
   // Fall back to .env credentials
   const u = process.env.DASH_USER;
@@ -145,6 +145,6 @@ function requireAdmin(req, res, next) {
 }
 
 module.exports = {
-  validateUser, makeToken, verifyToken, getTokenFromRequest, getTokenUser,
+  verifyPassword, validateUser, makeToken, verifyToken, getTokenFromRequest, getTokenUser,
   requireAuth, requireAuthSocket, requireAdmin, requirePageRead, requirePageWrite, requireSwitchWrite
 };

@@ -46,6 +46,7 @@ function initDb(dbPath) {
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       username   TEXT UNIQUE NOT NULL,
       password   TEXT NOT NULL,
+      must_change_password INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
 
@@ -70,6 +71,13 @@ function initDb(dbPath) {
       PRIMARY KEY (user_id, switch_name)
     );
   `);
+
+  // Migration: add must_change_password to existing databases.
+  const userCols = _db.prepare('PRAGMA table_info(users)').all();
+  const hasMustChangeCol = userCols.some(c => c.name === 'must_change_password');
+  if (!hasMustChangeCol) {
+    _db.exec('ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0');
+  }
 
   // Token generation — incremented on each startup to invalidate old sessions
   _db.exec(`
@@ -189,13 +197,13 @@ function getUser(username) {
 }
 
 function getAllUsers() {
-  return _db.prepare('SELECT id, username, created_at FROM users ORDER BY username').all();
+  return _db.prepare('SELECT id, username, created_at, must_change_password FROM users ORDER BY username').all();
 }
 
-function createUser(username, passwordHash, createdAt) {
+function createUser(username, passwordHash, createdAt, mustChangePassword = false) {
   const info = _db.prepare(
-    'INSERT INTO users (username, password, created_at) VALUES (?, ?, ?)'
-  ).run(username, passwordHash, createdAt || new Date().toISOString());
+    'INSERT INTO users (username, password, must_change_password, created_at) VALUES (?, ?, ?, ?)'
+  ).run(username, passwordHash, mustChangePassword ? 1 : 0, createdAt || new Date().toISOString());
   const userId = info.lastInsertRowid;
   // Grant default pages
   const grant = _db.prepare(
@@ -208,8 +216,13 @@ function createUser(username, passwordHash, createdAt) {
   return userId;
 }
 
-function updatePassword(username, passwordHash) {
-  _db.prepare('UPDATE users SET password = ? WHERE username = ?').run(passwordHash, username);
+function updatePassword(username, passwordHash, opts = {}) {
+  const mustChangePassword = typeof opts.mustChangePassword === 'boolean' ? opts.mustChangePassword : false;
+  _db.prepare('UPDATE users SET password = ?, must_change_password = ? WHERE username = ?').run(passwordHash, mustChangePassword ? 1 : 0, username);
+}
+
+function setMustChangePassword(username, mustChangePassword) {
+  _db.prepare('UPDATE users SET must_change_password = ? WHERE username = ?').run(mustChangePassword ? 1 : 0, username);
 }
 
 function deleteUser(username) {
@@ -289,4 +302,4 @@ function getTokenGeneration() {
   return _db.prepare('SELECT value FROM meta WHERE key = ?').get('token_generation')?.value || '1';
 }
 
-module.exports = { initDb, getDb, getUser, getAllUsers, createUser, updatePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages, getTokenGeneration, DEFAULT_READ_PAGES, PAGES };
+module.exports = { initDb, getDb, getUser, getAllUsers, createUser, updatePassword, setMustChangePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages, getTokenGeneration, DEFAULT_READ_PAGES, PAGES };

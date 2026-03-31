@@ -1122,9 +1122,14 @@
           <div>
             <label style="display:block;font-size:.75rem;color:var(--text-muted);margin-bottom:.3rem">PASSWORD</label>
             <input id="newPassword" type="password" style="width:100%;padding:.45rem .7rem;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-main);font-size:.85rem">
+            <div style="font-size:.7rem;color:var(--text-muted);margin-top:.3rem">Min 12 chars + upper/lower/number/symbol</div>
           </div>
           <button id="submitAddUser" style="background:#4f6ef7;color:#fff;border:none;border-radius:6px;padding:.45rem .9rem;font-size:.85rem;cursor:pointer;white-space:nowrap">Add User</button>
         </div>
+        <label style="display:flex;align-items:center;gap:.45rem;margin-top:.65rem;font-size:.78rem;color:var(--text-muted)">
+          <input id="newForcePwdChange" type="checkbox" checked>
+          Force password change at next login
+        </label>
         <div id="addUserError" style="display:none;margin-top:.5rem;color:#f87171;font-size:.8rem"></div>
       </div>
     </div>
@@ -1142,12 +1147,38 @@
       <div style="margin-bottom:.75rem">
         <label style="display:block;font-size:.75rem;color:var(--text-muted);margin-bottom:.3rem">NEW PASSWORD</label>
         <input id="chgPwdNew" type="password" style="width:100%;padding:.5rem .7rem;background:var(--bg-main);border:1px solid var(--border);border-radius:6px;color:var(--text-main);font-size:.9rem">
+        <div style="font-size:.72rem;color:var(--text-muted);margin-top:.3rem">Min 12 chars + upper/lower/number/symbol</div>
       </div>
+      <label style="display:flex;align-items:center;gap:.45rem;margin-bottom:.75rem;font-size:.8rem;color:var(--text-muted)">
+        <input id="chgPwdForce" type="checkbox" checked>
+        Require this user to change password at next login
+      </label>
       <div id="chgPwdError" style="display:none;margin-bottom:.5rem;color:#f87171;font-size:.8rem"></div>
       <div style="display:flex;gap:.5rem;justify-content:flex-end">
         <button id="chgPwdCancel" style="background:transparent;color:var(--text-muted);border:1px solid var(--border);border-radius:6px;padding:.4rem .9rem;cursor:pointer">Cancel</button>
         <button id="chgPwdSubmit" style="background:#4f6ef7;color:#fff;border:none;border-radius:6px;padding:.4rem .9rem;cursor:pointer">Save</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Forced password change modal -->
+<div id="forcePwdModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1100;align-items:center;justify-content:center">
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;width:100%;max-width:420px">
+    <h4 style="margin-bottom:.45rem;color:var(--text-main)">Password Update Required</h4>
+    <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:1rem">Your account is flagged to change password before continuing.</div>
+    <div style="margin-bottom:.7rem">
+      <label style="display:block;font-size:.75rem;color:var(--text-muted);margin-bottom:.3rem">CURRENT PASSWORD</label>
+      <input id="forcePwdCurrent" type="password" style="width:100%;padding:.5rem .7rem;background:var(--bg-main);border:1px solid var(--border);border-radius:6px;color:var(--text-main);font-size:.9rem">
+    </div>
+    <div style="margin-bottom:.7rem">
+      <label style="display:block;font-size:.75rem;color:var(--text-muted);margin-bottom:.3rem">NEW PASSWORD</label>
+      <input id="forcePwdNew" type="password" style="width:100%;padding:.5rem .7rem;background:var(--bg-main);border:1px solid var(--border);border-radius:6px;color:var(--text-main);font-size:.9rem">
+      <div style="font-size:.72rem;color:var(--text-muted);margin-top:.3rem">Min 12 chars + upper/lower/number/symbol</div>
+    </div>
+    <div id="forcePwdError" style="display:none;margin-bottom:.75rem;color:#f87171;font-size:.8rem"></div>
+    <div style="display:flex;justify-content:flex-end">
+      <button id="forcePwdSubmit" style="background:#4f6ef7;color:#fff;border:none;border-radius:6px;padding:.45rem 1rem;cursor:pointer">Update Password</button>
     </div>
   </div>
 </div>
