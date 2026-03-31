@@ -979,6 +979,7 @@
             <option value="">— Select switch —</option>
           </select>
           <button id="swWriteMemoryBtn" class="btn btn-sm btn-outline-warning" style="display:none">Write Memory</button>
+          <button id="swPermsCogBtn" class="btn btn-sm btn-outline-secondary" style="display:none" title="Manage switch write access">⚙ Manage Access</button>
           <span id="swVisLastUpdate" style="font-size:.72rem;color:var(--text-muted);margin-left:auto"></span>
         </div>
       </div>
@@ -997,6 +998,18 @@
         <button id="swPortModalClose" style="background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer">✕</button>
       </div>
       <div id="swPortModalBody"></div>
+    </div>
+  </div>
+
+  <!-- Switch write-access permissions modal -->
+  <div id="swPermsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;width:100%;max-width:760px;max-height:85vh;display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+        <h4 style="margin:0;color:var(--text-main)">⚙ Switch Write Access</h4>
+        <button id="swPermsModalClose" style="background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer">✕</button>
+      </div>
+      <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:1rem">Control which users can write to each switch. Users marked <strong>Admin</strong> have access to all switches via the Switch Admin permission.</p>
+      <div id="swPermsModalBody" style="overflow-y:auto;flex:1"></div>
     </div>
   </div>
 </div>

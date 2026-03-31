@@ -7,7 +7,7 @@ const { initDb } = require('./db');
 const dbPath = process.env.DB_PATH || path.join(process.cwd(), 'ros-dash.db');
 initDb(dbPath);
 
-const { makeToken, requireAuth, requireAuthSocket, requireAdmin, validateUser, getTokenUser, requirePageRead, requirePageWrite } = require('./auth');
+const { makeToken, requireAuth, requireAuthSocket, requireAdmin, validateUser, getTokenUser, requirePageRead, requirePageWrite, requireSwitchWrite } = require('./auth');
 const express = require('express');
 const http    = require('http');
 const { Server } = require('socket.io');
@@ -130,6 +130,12 @@ const switchPortVlanSchema = z.object({
 const switchPortAdminSchema = z.object({
   ifName: z.string().min(1, 'Port name is required'),
   enabled: z.boolean(),
+});
+
+const switchPermSchema = z.object({
+  username:   z.string().min(1, 'Username is required'),
+  switchName: z.string().min(1, 'Switch name is required'),
+  canWrite:   z.boolean(),
 });
 
 // Serve CSRF token for AJAX requests
@@ -474,10 +480,24 @@ app.get('/api/switches/list', requireAuth, requirePageRead('switches'), (req, re
 app.get('/api/switches/:name/ports', requireAuth, requirePageRead('switches'), (req, res) => {
   const data = switches.getPortData(req.params.name);
   if (!data) return res.status(404).json({ error: 'Switch not found or not yet polled' });
-  res.json(data);
+  const tokenUser = getTokenUser(req);
+  let userCanWrite = false;
+  if (tokenUser) {
+    if (tokenUser.id === null) {
+      userCanWrite = true;
+    } else {
+      const perms = tokenUser.permissions || {};
+      if (perms.switchadmin && perms.switchadmin.write) {
+        userCanWrite = true;
+      } else {
+        userCanWrite = getUserSwitchWrite(tokenUser.id, req.params.name);
+      }
+    }
+  }
+  res.json({ ...data, userCanWrite });
 });
 
-app.post('/api/switches/:name/port-vlan', csrfProtection, requireAuth, requirePageWrite('switches'), async (req, res) => {
+app.post('/api/switches/:name/port-vlan', csrfProtection, requireAuth, requireSwitchWrite('name'), async (req, res) => {
   try {
     const { ifName, vlan } = switchPortVlanSchema.parse(req.body);
     const result = await switches.setPortVlan({ switchName: req.params.name, ifName, vlan });
@@ -495,7 +515,7 @@ app.post('/api/switches/:name/port-vlan', csrfProtection, requireAuth, requirePa
   }
 });
 
-app.post('/api/switches/:name/port-admin', csrfProtection, requireAuth, requirePageWrite('switches'), async (req, res) => {
+app.post('/api/switches/:name/port-admin', csrfProtection, requireAuth, requireSwitchWrite('name'), async (req, res) => {
   try {
     const { ifName, enabled } = switchPortAdminSchema.parse(req.body);
     const result = await switches.setPortAdmin({ switchName: req.params.name, ifName, enabled });
@@ -513,7 +533,7 @@ app.post('/api/switches/:name/port-admin', csrfProtection, requireAuth, requireP
   }
 });
 
-app.post('/api/switches/:name/write-memory', csrfProtection, requireAuth, requirePageWrite('switches'), async (req, res) => {
+app.post('/api/switches/:name/write-memory', csrfProtection, requireAuth, requireSwitchWrite('name'), async (req, res) => {
   try {
     const result = await switches.writeMemory({ switchName: req.params.name });
     res.json({ ok: true, result });
@@ -524,6 +544,46 @@ app.post('/api/switches/:name/write-memory', csrfProtection, requireAuth, requir
     const msg = getErrorMessage(e);
     console.error('[switches] write memory failed:', msg);
     return res.status(500).json({ error: msg });
+  }
+});
+
+// Switch write-access permissions grid — requires switchadmin
+app.get('/api/switch-permissions', requireAuth, requirePageRead('switchadmin'), (req, res) => {
+  const users = getAllUsers();
+  const grants = getAllSwitchPermissions();
+  const switchList = switches.getSwitchList().map(s => s.name);
+
+  // Build a userId → { switchName: canWrite } map
+  const grantsMap = {};
+  for (const g of grants) {
+    if (!grantsMap[g.user_id]) grantsMap[g.user_id] = {};
+    grantsMap[g.user_id][g.switch_name] = g.can_write === 1;
+  }
+
+  const result = users.map(u => {
+    const perms = getUserPermissions(u.id);
+    return {
+      username:    u.username,
+      switchAdmin: !!(perms.switchadmin && perms.switchadmin.write),
+      grants:      grantsMap[u.id] || {},
+    };
+  });
+
+  res.json({ switches: switchList, users: result });
+});
+
+app.post('/api/switch-permissions', csrfProtection, requireAuth, requirePageWrite('switchadmin'), (req, res) => {
+  try {
+    const { username, switchName, canWrite } = switchPermSchema.parse(req.body);
+    const user = getUser(username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    setSwitchPermission(user.id, switchName, canWrite);
+    res.json({ ok: true });
+  } catch (e) {
+    if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors[0].message });
+    const msg = getErrorMessage(e);
+    console.error('[switch-permissions] set failed:', msg);
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -542,7 +602,7 @@ app.get('/logout', (_req, res) => {
 
 // User management API
 const crypto_users = require('crypto');
-const { getAllUsers, getUser, createUser, updatePassword, deleteUser, getUserPermissions, setPermission, getPages } = require('./db');
+const { getAllUsers, getUser, createUser, updatePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages } = require('./db');
 
 function hashPassword(password) {
   const salt = crypto_users.randomBytes(16).toString('hex');

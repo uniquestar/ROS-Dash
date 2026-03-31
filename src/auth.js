@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { getUser, getUserPermissions, getTokenGeneration } = require('./db');
+const { getUser, getUserPermissions, getTokenGeneration, getUserSwitchWrite } = require('./db');
 
 const DASH_SECRET = (process.env.DASH_SECRET || '').trim();
 if (!DASH_SECRET) {
@@ -119,6 +119,26 @@ function requirePageWrite(pageKey) {
   };
 }
 
+/**
+ * Per-switch write authorization middleware factory.
+ * Grants access to: .env users (id=null), users with switchadmin.write, or users with an explicit per-switch grant.
+ */
+function requireSwitchWrite(switchNameParam) {
+  return function(req, res, next) {
+    const user = getTokenUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorised' });
+    // .env users (no DB id) are treated as full admins
+    if (user.id === null) return next();
+    const perms = user.permissions || {};
+    // switchadmin.write grants unrestricted write access to any switch
+    if (perms.switchadmin && perms.switchadmin.write) return next();
+    // fall back to per-switch DB grant
+    const switchName = req.params[switchNameParam];
+    if (switchName && getUserSwitchWrite(user.id, switchName)) return next();
+    res.status(403).json({ error: 'Forbidden' });
+  };
+}
+
 // Legacy — kept for any remaining references, maps to users page write
 function requireAdmin(req, res, next) {
   return requirePageWrite('users')(req, res, next);
@@ -126,5 +146,5 @@ function requireAdmin(req, res, next) {
 
 module.exports = {
   validateUser, makeToken, verifyToken, getTokenFromRequest, getTokenUser,
-  requireAuth, requireAuthSocket, requireAdmin, requirePageRead, requirePageWrite
+  requireAuth, requireAuthSocket, requireAdmin, requirePageRead, requirePageWrite, requireSwitchWrite
 };
