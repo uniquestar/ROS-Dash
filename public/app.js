@@ -48,6 +48,7 @@ var ifaceGrid        = $('ifaceGrid');
 var dhcpTable        = $('dhcpTable');
 var dhcpCanWrite     = false;
 var switchCanWrite   = false;
+var switchAdminWrite = false;
 var dhcpTotalBadge   = $('dhcpTotalBadge');
 var dhcpNavBadge     = $('dhcpNavBadge');
 var dhcpSearch       = $('dhcpSearch');
@@ -1901,6 +1902,9 @@ sendNotif = function(title, body, tag){
       if (window._onMeLoaded) window._onMeLoaded(me);
       dhcpCanWrite = !!(perms.dhcp && perms.dhcp.write);
       switchCanWrite = !!(perms.switches && perms.switches.write);
+      switchAdminWrite = !!(perms.switchadmin && perms.switchadmin.write);
+      var cogBtn = document.getElementById('swPermsCogBtn');
+      if (cogBtn) cogBtn.style.display = switchAdminWrite ? '' : 'none';
       if (allLeases && allLeases.length) renderDhcp(allLeases);
 
       // Show/hide nav items based on read permissions
@@ -2117,7 +2121,7 @@ sendNotif = function(title, body, tag){
     var btn = $('swWriteMemoryBtn');
     if (!btn) return;
     var swMeta = _swMeta[_selSwitch] || {};
-    var show = !!_selSwitch && switchCanWrite && !!swMeta.writeEnabled;
+    var show = !!_selSwitch && !!swMeta.userCanWrite && !!swMeta.writeEnabled;
     btn.style.display = show ? '' : 'none';
     btn.disabled = false;
     btn.textContent = 'Write Memory';
@@ -2169,6 +2173,7 @@ function loadSwitchPorts(name) {
           switchVlans: data.switchVlans || [],
           defaultVlan: data.defaultVlan || null,
           writeEnabled: !!data.writeEnabled,
+          userCanWrite: !!data.userCanWrite,
         };
         var ts = $('swVisLastUpdate');
         if (ts) ts.textContent = 'Updated ' + new Date(data.ts).toLocaleTimeString();
@@ -2346,8 +2351,8 @@ function renderVisualiser(switchName, module) {
     var statusColor = p.status === 'up' ? '#22c55e' : '#6b7280';
     var poeColor    = p.poeStatus === 'delivering' ? '#22c55e' : 'var(--text-muted)';
     var swMeta = _swMeta[_selSwitch] || {};
-    var canWritePortVlan = switchCanWrite && !!swMeta.writeEnabled;
-    var canWritePortAdmin = switchCanWrite && !!swMeta.writeEnabled;
+    var canWritePortVlan  = !!(swMeta.userCanWrite && swMeta.writeEnabled);
+    var canWritePortAdmin = !!(swMeta.userCanWrite && swMeta.writeEnabled);
     var currentAccessVlan = p.accessVlan || ((p.macs && p.macs.length) ? p.macs[0].vlan : null);
     var vlanOptions = (swMeta.vlanOptions || []).slice().sort(function(a, b){ return a - b; });
     var isAdminUp = (p.adminStatus || 'up') === 'up';
@@ -2541,6 +2546,89 @@ function renderVisualiser(switchName, module) {
 
   // Load switch list on startup so visualiser is ready
   loadSwitchList();
+
+  // ── Switch Permissions modal ───────────────────────────────────────────────
+  var cogBtn = $('swPermsCogBtn');
+  if (cogBtn) cogBtn.addEventListener('click', function() { openSwPermsModal(); });
+
+  var permsClose = $('swPermsModalClose');
+  if (permsClose) permsClose.addEventListener('click', function() {
+    $('swPermsModal').style.display = 'none';
+  });
+
+  function openSwPermsModal() {
+    var modal = $('swPermsModal');
+    var body  = $('swPermsModalBody');
+    if (!modal || !body) return;
+    body.innerHTML = '<div class="empty-state">Loading…</div>';
+    modal.style.display = 'flex';
+    fetch('/api/switch-permissions', { credentials: 'include' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) { renderSwPermsModal(data); })
+      .catch(function() {
+        body.innerHTML = '<div class="empty-state">Failed to load permissions</div>';
+      });
+  }
+
+  function renderSwPermsModal(data) {
+    var body     = $('swPermsModalBody');
+    var switches = data.switches || [];
+    var users    = data.users    || [];
+
+    if (!users.length) {
+      body.innerHTML = '<div class="empty-state">No users found</div>';
+      return;
+    }
+
+    var headerCols = switches.map(function(sw) {
+      return '<th style="font-size:.72rem;text-align:center;white-space:nowrap;padding:.4rem .5rem">'+esc(sw)+'</th>';
+    }).join('');
+
+    var rows = users.map(function(u) {
+      if (u.switchAdmin) {
+        var adminCells = switches.map(function() {
+          return '<td style="text-align:center"><span style="font-size:.7rem;color:var(--accent-rx);font-weight:600">Admin</span></td>';
+        }).join('');
+        return '<tr>'+
+          '<td style="font-family:var(--font-mono);font-size:.82rem;white-space:nowrap">'+esc(u.username)+'</td>'+
+          adminCells+'</tr>';
+      }
+      var cells = switches.map(function(sw) {
+        var checked = !!(u.grants && u.grants[sw]);
+        return '<td style="text-align:center">'+
+          '<input type="checkbox" data-user="'+esc(u.username)+'" data-switch="'+esc(sw)+'" '+(checked?'checked':'')+' style="cursor:pointer;width:16px;height:16px">'+
+          '</td>';
+      }).join('');
+      return '<tr>'+
+        '<td style="font-family:var(--font-mono);font-size:.82rem;white-space:nowrap">'+esc(u.username)+'</td>'+
+        cells+'</tr>';
+    }).join('');
+
+    body.innerHTML =
+      '<div style="overflow-x:auto">'+
+      '<table class="table table-vcenter mb-0" style="font-size:.8rem">'+
+        '<thead><tr>'+
+          '<th style="white-space:nowrap">User</th>'+headerCols+
+        '</tr></thead>'+
+        '<tbody>'+rows+'</tbody>'+
+      '</table></div>';
+
+    body.querySelectorAll('input[type="checkbox"][data-user]').forEach(function(cb) {
+      cb.addEventListener('change', function() {
+        var username   = cb.dataset.user;
+        var switchName = cb.dataset.switch;
+        var canWrite   = cb.checked;
+        secureApiCall('/api/switch-permissions', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: username, switchName: switchName, canWrite: canWrite }),
+        }).catch(function() {
+          console.error('Failed to save switch permission');
+          cb.checked = !cb.checked; // revert on failure
+        });
+      });
+    });
+  }
 
   // Module selector
   var modSel = $('swVisModule');

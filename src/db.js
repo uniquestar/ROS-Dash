@@ -22,6 +22,7 @@ const PAGES = [
   { key: 'logs',         label: 'Logs',          sort_order: 10 },
   { key: 'users',        label: 'Users',         sort_order: 11 },
   { key: 'about',        label: 'About',         sort_order: 12 },
+  { key: 'switchadmin',  label: 'Switch Admin',  sort_order: 13 },
 ];
 
 // Pages everyone gets read access to by default
@@ -61,6 +62,13 @@ function initDb(dbPath) {
       can_write INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (user_id, page_key)
     );
+
+    CREATE TABLE IF NOT EXISTS switch_permissions (
+      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      switch_name TEXT NOT NULL,
+      can_write   INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, switch_name)
+    );
   `);
 
   // Token generation — incremented on each startup to invalidate old sessions
@@ -95,6 +103,18 @@ function initDb(dbPath) {
     }
   });
   grantNewPages();
+
+  // Migration: grant switchadmin.write to anyone who previously had switches.write
+  const migrateSwitchAdmin = _db.transaction(() => {
+    const toMigrate = _db.prepare(
+      'SELECT user_id FROM permissions WHERE page_key = ? AND can_write = 1'
+    ).all('switches');
+    const grantAdmin = _db.prepare(
+      'INSERT OR IGNORE INTO permissions (user_id, page_key, can_read, can_write) VALUES (?, ?, 1, 1)'
+    );
+    for (const { user_id } of toMigrate) grantAdmin.run(user_id, 'switchadmin');
+  });
+  migrateSwitchAdmin();
 
   // Migrate users.json if it exists and hasn't been migrated yet
   migrateUsersJson();
@@ -226,6 +246,38 @@ function setPermission(userId, pageKey, canRead, canWrite) {
   `).run(userId, pageKey, canRead ? 1 : 0, canWrite ? 1 : 0, canRead ? 1 : 0, canWrite ? 1 : 0);
 }
 
+// ── Switch permission operations ─────────────────────────────────────────────
+
+/**
+ * Check if a user has per-switch write permission for a specific switch.
+ */
+function getUserSwitchWrite(userId, switchName) {
+  const row = _db.prepare(
+    'SELECT can_write FROM switch_permissions WHERE user_id = ? AND switch_name = ?'
+  ).get(userId, switchName);
+  return row ? row.can_write === 1 : false;
+}
+
+/**
+ * Return all switch_permissions rows, used for the admin management UI.
+ */
+function getAllSwitchPermissions() {
+  return _db.prepare(
+    'SELECT user_id, switch_name, can_write FROM switch_permissions ORDER BY user_id, switch_name'
+  ).all();
+}
+
+/**
+ * Upsert per-switch write permission for a user.
+ */
+function setSwitchPermission(userId, switchName, canWrite) {
+  _db.prepare(`
+    INSERT INTO switch_permissions (user_id, switch_name, can_write)
+    VALUES (?, ?, ?)
+    ON CONFLICT(user_id, switch_name) DO UPDATE SET can_write = ?
+  `).run(userId, switchName, canWrite ? 1 : 0, canWrite ? 1 : 0);
+}
+
 function getPages() {
   return _db.prepare('SELECT * FROM pages ORDER BY sort_order').all();
 }
@@ -237,4 +289,4 @@ function getTokenGeneration() {
   return _db.prepare('SELECT value FROM meta WHERE key = ?').get('token_generation')?.value || '1';
 }
 
-module.exports = { initDb, getDb, getUser, getAllUsers, createUser, updatePassword, deleteUser, getUserPermissions, setPermission, getPages, getTokenGeneration, DEFAULT_READ_PAGES, PAGES };
+module.exports = { initDb, getDb, getUser, getAllUsers, createUser, updatePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages, getTokenGeneration, DEFAULT_READ_PAGES, PAGES };
