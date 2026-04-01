@@ -123,7 +123,7 @@ function secureApiCall(url, options) {
 }
 
 // ── Page router ────────────────────────────────────────────────────────────
-var PAGE_TITLES = {dashboard:'Dashboard',connections:'Connections',wireless:'Wireless',interfaces:'Interfaces',dhcp:'DHCP',firewall:'Firewall',vpn:'VPN',switches:'Switches',routes:'Routes',addresslists:'Address Lists',logs:'Logs',users:'User Management'};
+var PAGE_TITLES = {dashboard:'Dashboard',connections:'Connections',wireless:'Wireless',interfaces:'Interfaces',dhcp:'DHCP',firewall:'Firewall',vpn:'VPN',switches:'Switches',routes:'Routes',addresslists:'Address Lists',logs:'Logs',users:'User Management',inventory:'Client Inventory',auditlog:'Audit Log'};
 var PAGE_KEYS   = ['dashboard','wireless','interfaces','dhcp','vpn','connections','firewall','logs','info','users'];
 function showPage(name){
   document.querySelectorAll('.page-view').forEach(function(p){p.classList.remove('active');});
@@ -132,6 +132,8 @@ function showPage(name){
   var nav  = document.querySelector('.nav-item[data-page="'+name+'"]'); if(nav) nav.classList.add('active');
   if(pageTitle) pageTitle.textContent = PAGE_TITLES[name]||name;
   if(name === 'users' && typeof loadUsers === 'function') loadUsers();
+  if(name === 'inventory' && typeof loadInventory === 'function') loadInventory();
+  if(name === 'auditlog'  && typeof loadAuditLog  === 'function') loadAuditLog(true);
 }
 document.querySelectorAll('.nav-item').forEach(function(item){
   item.addEventListener('click', function(e){
@@ -3170,6 +3172,156 @@ function renderVisualiser(switchName, module) {
   document.querySelectorAll('.nav-item[data-page="vpn"]').forEach(function(el){
     el.addEventListener('click', function(){
       if (vpnCanWrite) loadWgData();
+
+    // ── Client Inventory ───────────────────────────────────────────────────────
+    (function(){
+      var _inventoryData = [];
+
+      function fmtDate(iso) {
+        if (!iso) return '—';
+        try { var d = new Date(iso); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); } catch(e) { return iso; }
+      }
+
+      function renderInventory(devices, filter, statusFilter) {
+        var tbody = $('inventoryTable');
+        var badge = $('inventoryBadge');
+        var nb    = $('inventoryNavBadge');
+        if (!tbody) return;
+        var f  = (filter || '').toLowerCase();
+        var sf = statusFilter || '';
+        var filtered = devices.filter(function(d) {
+          if (sf === 'online'  && !d.online) return false;
+          if (sf === 'offline' &&  d.online) return false;
+          if (!f) return true;
+          var hay = [d.mac, d.hostname, d.ip, d.switch||'', d.switchPort||'', String(d.vlan||'')].join(' ').toLowerCase();
+          return hay.indexOf(f) !== -1;
+        });
+        if (badge) badge.textContent = filtered.length;
+        if (nb)    nb.textContent    = devices.filter(function(d){ return d.online; }).length || '';
+        if (!filtered.length) {
+          tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No devices'+(f||sf?' matching filter':'')+'&#8230;</td></tr>';
+          return;
+        }
+        tbody.innerHTML = filtered.map(function(d) {
+          var statusColor = d.online
+            ? (d.status==='bound'||d.status==='static'?'color:var(--accent-ok)':'color:var(--accent-warn)')
+            : 'color:var(--text-muted)';
+          var dot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+(d.online?'var(--accent-ok)':'rgba(148,163,190,.3)')+';margin-right:4px;vertical-align:middle"></span>';
+          return '<tr style="opacity:'+(d.online?'1':'.65')+'">'+
+            '<td style="font-family:var(--font-mono);font-size:.68rem;color:var(--text-muted)">'+esc(d.mac)+'</td>'+
+            '<td style="font-weight:600;font-size:.78rem">'+esc(d.hostname||'—')+'</td>'+
+            '<td style="font-family:var(--font-mono);font-size:.72rem;color:var(--accent-rx)">'+esc(d.ip||'—')+'</td>'+
+            '<td style="font-size:.75rem;color:var(--text-muted)">'+esc(d.switch||'—')+'</td>'+
+            '<td style="font-family:var(--font-mono);font-size:.72rem">'+esc(d.switchPort||'—')+'</td>'+
+            '<td style="font-family:var(--font-mono);font-size:.72rem;text-align:center">'+esc(String(d.vlan||'—'))+'</td>'+
+            '<td>'+dot+'<span style="font-size:.72rem;'+statusColor+'">'+esc(d.status||'offline')+'</span></td>'+
+            '<td style="font-family:var(--font-mono);font-size:.67rem;color:var(--text-muted)">'+esc(fmtDate(d.firstSeen))+'</td>'+
+            '<td style="font-family:var(--font-mono);font-size:.67rem;color:var(--text-muted)">'+esc(fmtDate(d.lastSeen))+'</td>'+
+            '</tr>';
+        }).join('');
+      }
+
+      window.loadInventory = function() {
+        var tbody = $('inventoryTable');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-state" style="padding:1.5rem">Loading&#8230;</td></tr>';
+        fetch('/api/inventory', { credentials:'include' })
+          .then(function(r){ return r.json(); })
+          .then(function(data){
+            _inventoryData = data.devices || [];
+            renderInventory(_inventoryData, ($('inventorySearch')||{value:''}).value, ($('inventoryStatusFilter')||{value:''}).value);
+          })
+          .catch(function(){
+            var tbody = $('inventoryTable');
+            if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-state" style="color:var(--accent-err)">Failed to load inventory</td></tr>';
+          });
+      };
+
+      var s = $('inventorySearch');
+      if (s) s.addEventListener('input', function(){ renderInventory(_inventoryData, this.value, ($('inventoryStatusFilter')||{value:''}).value); });
+      var sf = $('inventoryStatusFilter');
+      if (sf) sf.addEventListener('change', function(){ renderInventory(_inventoryData, ($('inventorySearch')||{value:''}).value, this.value); });
+      var rb = $('inventoryRefresh');
+      if (rb) rb.addEventListener('click', window.loadInventory);
+    })();
+
+    // ── Audit Log ───────────────────────────────────────────────────────────────
+    (function(){
+      var _auditTotal  = 0;
+      var _auditOffset = 0;
+      var _auditLimit  = 100;
+      var _auditRows   = [];
+
+      function fmtTs(iso) {
+        if (!iso) return '—';
+        try { var d = new Date(iso); return d.toLocaleDateString()+' '+d.toLocaleTimeString(); } catch(e) { return iso; }
+      }
+
+      function renderAuditRows(rows, reset) {
+        var tbody = $('auditLogTable');
+        if (!tbody) return;
+        if (reset) { _auditRows = rows; } else { _auditRows = _auditRows.concat(rows); }
+        if (!_auditRows.length) {
+          tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No audit log entries</td></tr>';
+          updateAuditMeta(); return;
+        }
+        tbody.innerHTML = _auditRows.map(function(row) {
+          var oColor = row.outcome === 'ok' ? 'color:var(--accent-ok)' : 'color:var(--accent-err)';
+          var aColor = row.action.indexOf('switch')===0?'color:#f472b6':
+                       row.action.indexOf('user')===0?'color:#fb923c':
+                       row.action.indexOf('dhcp')===0?'color:var(--accent-rx)':
+                       row.action.indexOf('perm')===0?'color:#a78bfa':
+                       row.action.indexOf('wg')===0?'color:var(--accent-tx)':'color:var(--text-muted)';
+          return '<tr>'+
+            '<td style="font-family:var(--font-mono);font-size:.67rem;color:var(--text-muted)">'+esc(fmtTs(row.ts))+'</td>'+
+            '<td style="font-weight:600;font-size:.75rem">'+esc(row.username||'—')+'</td>'+
+            '<td style="font-family:var(--font-mono);font-size:.71rem;'+aColor+'">'+esc(row.action)+'</td>'+
+            '<td style="font-family:var(--font-mono);font-size:.71rem;color:var(--text-muted)">'+esc(row.target||'—')+'</td>'+
+            '<td style="font-size:.71rem;color:var(--text-muted)">'+esc(row.detail||'')+'</td>'+
+            '<td style="font-family:var(--font-mono);font-size:.69rem;'+oColor+'">'+esc(row.outcome)+'</td>'+
+            '</tr>';
+        }).join('');
+        updateAuditMeta();
+      }
+
+      function updateAuditMeta() {
+        var el  = $('auditLogTotal');
+        var btn = $('auditLogLoadMore');
+        if (el)  el.textContent = 'Showing '+_auditRows.length+' of '+_auditTotal;
+        if (btn) btn.style.display = (_auditRows.length < _auditTotal) ? 'inline-block' : 'none';
+      }
+
+      window.loadAuditLog = function(reset) {
+        if (reset) { _auditOffset = 0; _auditRows = [];
+          var tbody = $('auditLogTable');
+          if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="empty-state" style="padding:1.5rem">Loading&#8230;</td></tr>';
+        }
+        var user   = ($('auditLogUser')  ||{value:''}).value.trim();
+        var action = ($('auditLogAction')||{value:''}).value;
+        var url = '/api/audit-log?limit='+_auditLimit+'&offset='+_auditOffset;
+        if (user)   url += '&username='+encodeURIComponent(user);
+        if (action) url += '&action='+encodeURIComponent(action);
+        fetch(url, { credentials:'include' })
+          .then(function(r){ return r.json(); })
+          .then(function(data){
+            _auditTotal  = data.total || 0;
+            _auditOffset += (data.logs || []).length;
+            var badge = $('auditLogBadge'); if (badge) badge.textContent = _auditTotal;
+            renderAuditRows(data.logs || [], reset !== false);
+          })
+          .catch(function(){
+            var tbody = $('auditLogTable');
+            if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="empty-state" style="color:var(--accent-err)">Failed to load audit log</td></tr>';
+          });
+      };
+
+      var rb  = $('auditLogRefresh');   if (rb)  rb.addEventListener('click', function(){ window.loadAuditLog(true); });
+      var lm  = $('auditLogLoadMore');  if (lm)  lm.addEventListener('click', function(){ window.loadAuditLog(false); });
+      var userInput = $('auditLogUser');
+      var debounce;
+      if (userInput) userInput.addEventListener('input', function(){ clearTimeout(debounce); debounce = setTimeout(function(){ window.loadAuditLog(true); }, 400); });
+      var actionSel = $('auditLogAction');
+      if (actionSel) actionSel.addEventListener('change', function(){ window.loadAuditLog(true); });
+    })();
     });
   });
 

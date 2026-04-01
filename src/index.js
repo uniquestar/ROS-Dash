@@ -194,6 +194,7 @@ app.post('/api/dhcp/make-static', csrfProtection, requireAuth, requirePageWrite(
     const safeLeaseId = sanitizeRosId(lease.id, 'lease id');
     await ros.write('/ip/dhcp-server/lease/make-static', ['=.id=' + safeLeaseId]);
     console.log(`[dhcp] made static: ${ip} id=${lease.id}`);
+    auditLog(req, 'dhcp.reserve', ip, null, 'ok');
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
@@ -219,6 +220,7 @@ app.post('/api/dhcp/remove-static', csrfProtection, requireAuth, requirePageWrit
     const safeLeaseId = sanitizeRosId(lease.id, 'lease id');
     await ros.write('/ip/dhcp-server/lease/remove', ['=.id=' + safeLeaseId]);
     console.log(`[dhcp] removed static lease: ${ip} id=${lease.id}`);
+    auditLog(req, 'dhcp.release', ip, null, 'ok');
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
@@ -364,6 +366,7 @@ app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('
     });
 
     console.log('[wireguard] created peer:', name, ip);
+    auditLog(req, 'wg.create-peer', name, 'ip=' + ip, 'ok');
     res.json({ ok: true, config, publicKey });
 
   } catch(e) {
@@ -420,6 +423,7 @@ app.patch('/api/wireguard/peers/:id', csrfProtection, requireAuth, requirePageWr
       }
     }
     console.log('[wireguard] updated peer:', safePeerId);
+    auditLog(req, 'wg.update-peer', safePeerId, null, 'ok');
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
@@ -522,6 +526,7 @@ app.post('/api/switches/:name/port-vlan', csrfProtection, requireAuth, requireSw
   try {
     const { ifName, vlan } = switchPortVlanSchema.parse(req.body);
     const result = await switches.setPortVlan({ switchName: req.params.name, ifName, vlan });
+    auditLog(req, 'switch.vlan', req.params.name + '/' + ifName, 'vlan=' + vlan, 'ok');
     res.json({ ok: true, result });
   } catch (e) {
     if (e instanceof z.ZodError) {
@@ -540,6 +545,7 @@ app.post('/api/switches/:name/port-admin', csrfProtection, requireAuth, requireS
   try {
     const { ifName, enabled } = switchPortAdminSchema.parse(req.body);
     const result = await switches.setPortAdmin({ switchName: req.params.name, ifName, enabled });
+    auditLog(req, 'switch.admin', req.params.name + '/' + ifName, enabled ? 'no-shutdown' : 'shutdown', 'ok');
     res.json({ ok: true, result });
   } catch (e) {
     if (e instanceof z.ZodError) {
@@ -557,6 +563,7 @@ app.post('/api/switches/:name/port-admin', csrfProtection, requireAuth, requireS
 app.post('/api/switches/:name/write-memory', csrfProtection, requireAuth, requireSwitchWrite('name'), async (req, res) => {
   try {
     const result = await switches.writeMemory({ switchName: req.params.name });
+    auditLog(req, 'switch.write-memory', req.params.name, null, 'ok');
     res.json({ ok: true, result });
   } catch (e) {
     if (e && e.statusCode) {
@@ -599,6 +606,7 @@ app.post('/api/switch-permissions', csrfProtection, requireAuth, requirePageWrit
     const user = getUser(username);
     if (!user) return res.status(404).json({ error: 'User not found' });
     setSwitchPermission(user.id, switchName, canWrite);
+    auditLog(req, 'perm.switch', username + '/' + switchName, canWrite ? 'grant' : 'revoke', 'ok');
     res.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors[0].message });
@@ -623,12 +631,19 @@ app.get('/logout', (_req, res) => {
 
 // User management API
 const crypto_users = require('crypto');
-const { getAllUsers, getUser, createUser, updatePassword, setMustChangePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages } = require('./db');
+const { getAllUsers, getUser, createUser, updatePassword, setMustChangePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages, upsertInventoryMac, getAllInventory, addAuditLog, getAuditLogs } = require('./db');
 
 function hashPassword(password) {
   const salt = crypto_users.randomBytes(16).toString('hex');
   const hash = crypto_users.pbkdf2Sync(password, salt, 100000, 64, 'sha256').toString('hex');
   return `${salt}:${hash}`;
+}
+
+function auditLog(req, action, target, detail, outcome) {
+  try {
+    const u = getTokenUser(req);
+    addAuditLog({ username: u ? u.username : 'unknown', action, target: target || '', detail: detail || null, outcome: outcome || 'ok' });
+  } catch (_) {}
 }
 
 // List all users — requires users:read
@@ -649,6 +664,7 @@ app.post('/api/users', csrfProtection, requireAuth, requirePageWrite('users'), (
     const { username, password, forcePasswordChange } = userCreateSchema.parse(req.body);
     if (getUser(username)) return res.status(409).json({ error: 'User already exists' });
     createUser(username, hashPassword(password), new Date().toISOString(), !!forcePasswordChange);
+    auditLog(req, 'user.create', username, forcePasswordChange ? 'force-change' : null, 'ok');
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
@@ -667,6 +683,7 @@ app.patch('/api/users/:username', csrfProtection, requireAuth, requirePageWrite(
     const { password, forcePasswordChange } = userPasswordSchema.parse(req.body);
     if (!getUser(username)) return res.status(404).json({ error: 'User not found' });
     updatePassword(username, hashPassword(password), { mustChangePassword: !!forcePasswordChange });
+    auditLog(req, 'user.password', username, forcePasswordChange ? 'force-change' : null, 'ok');
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
@@ -683,6 +700,7 @@ app.delete('/api/users/:username', csrfProtection, requireAuth, requirePageWrite
   const { username } = req.params;
   if (!getUser(username)) return res.status(404).json({ error: 'User not found' });
   deleteUser(username);
+  auditLog(req, 'user.delete', username, null, 'ok');
   res.json({ ok: true });
 });
 
@@ -692,6 +710,7 @@ app.post('/api/users/:username/force-password-change', csrfProtection, requireAu
     const { mustChangePassword } = forcePwdSchema.parse(req.body);
     if (!getUser(username)) return res.status(404).json({ error: 'User not found' });
     setMustChangePassword(username, mustChangePassword);
+    auditLog(req, 'user.force-change', username, mustChangePassword ? 'enabled' : 'disabled', 'ok');
     res.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {
@@ -715,6 +734,7 @@ app.post('/api/me/password', csrfProtection, requireAuth, (req, res) => {
     if (!verifyPassword(dbUser.password, currentPassword)) return res.status(400).json({ error: 'Current password is incorrect' });
 
     updatePassword(tokenUser.username, hashPassword(newPassword), { mustChangePassword: false });
+    auditLog(req, 'me.password', tokenUser.username, null, 'ok');
     const authedUser = validateUser(tokenUser.username, newPassword);
     const token = makeToken(authedUser);
     res.setHeader('Set-Cookie', `rosdash_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);
@@ -741,6 +761,7 @@ app.post('/api/permissions', csrfProtection, requireAuth, requirePageWrite('user
     const user = getUser(username);
     if (!user) return res.status(404).json({ error: 'User not found' });
     setPermission(user.id, pageKey, canRead, canWrite);
+    auditLog(req, 'perm.page', username + '/' + pageKey, 'read=' + !!canRead + ' write=' + !!canWrite, 'ok');
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
@@ -749,6 +770,82 @@ app.post('/api/permissions', csrfProtection, requireAuth, requirePageWrite('user
     const msg = getErrorMessage(e);
     console.error('[permissions] set permission failed:', msg);
     res.status(500).json({ error: msg });
+  }
+});
+
+// Client Inventory — aggregates from DHCP leases, ARP, and switch MAC tables
+app.get('/api/inventory', requireAuth, requirePageRead('inventory'), (req, res) => {
+  try {
+    const now = new Date().toISOString();
+    const seen = new Map();
+
+    // From DHCP leases
+    for (const [ip, v] of dhcpLeases.byIP.entries()) {
+      if (!v.mac) continue;
+      const mac = v.mac.toLowerCase();
+      seen.set(mac, { mac, ip, hostname: v.hostName || v.name || '', status: v.status || '', leaseType: v.type || '' });
+    }
+
+    // From ARP (IPs not resolved via DHCP)
+    for (const [ip, v] of arp.byIP.entries()) {
+      if (!v.mac) continue;
+      const mac = v.mac.toLowerCase();
+      if (!seen.has(mac)) {
+        seen.set(mac, { mac, ip, hostname: '', status: 'arp-only', leaseType: '' });
+      }
+    }
+
+    // From switch MAC table — add port/VLAN info and fill in hostnames
+    for (const port of switches.getLastMacPorts()) {
+      if (!port.mac) continue;
+      const mac = port.mac.toLowerCase();
+      const entry = seen.get(mac) || { mac, ip: '', hostname: '', status: '', leaseType: '' };
+      entry.switch = port.switch;
+      entry.switchPort = port.port;
+      entry.vlan = port.vlan;
+      if (!entry.hostname && port.name) entry.hostname = port.name;
+      if (!seen.has(mac)) seen.set(mac, entry);
+    }
+
+    // Update last_seen for all currently visible MACs
+    for (const mac of seen.keys()) {
+      upsertInventoryMac(mac, now);
+    }
+
+    const dbRecords = getAllInventory();
+    const dbMap = new Map(dbRecords.map(r => [r.mac, r]));
+    const devices = [];
+
+    // Currently visible devices
+    for (const [mac, entry] of seen.entries()) {
+      const db = dbMap.get(mac) || {};
+      devices.push({ ...entry, firstSeen: db.first_seen || now, lastSeen: db.last_seen || now, notes: db.notes || '', tags: db.tags || '', online: true });
+    }
+
+    // Historical devices no longer visible
+    for (const row of dbRecords) {
+      if (!seen.has(row.mac)) {
+        devices.push({ mac: row.mac, ip: '', hostname: '', status: 'offline', leaseType: '', switch: '', switchPort: '', vlan: null, firstSeen: row.first_seen, lastSeen: row.last_seen, notes: row.notes || '', tags: row.tags || '', online: false });
+      }
+    }
+
+    res.json({ devices });
+  } catch (e) {
+    res.status(500).json({ error: getErrorMessage(e) });
+  }
+});
+
+// Audit Log — paginated, filterable
+app.get('/api/audit-log', requireAuth, requirePageRead('auditlog'), (req, res) => {
+  try {
+    const limit    = Math.min(500, Math.max(1, parseInt(req.query.limit  || '100', 10)));
+    const offset   = Math.max(0, parseInt(req.query.offset || '0',   10));
+    const username = String(req.query.username || '').trim();
+    const action   = String(req.query.action   || '').trim();
+    const result   = getAuditLogs({ limit, offset, username, action });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: getErrorMessage(e) });
   }
 });
 
