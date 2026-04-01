@@ -978,6 +978,13 @@
           <select id="swVisSelect" class="form-control form-control-sm" style="width:200px">
             <option value="">— Select switch —</option>
           </select>
+          <button id="swBulkModeBtn" class="btn btn-sm btn-outline-primary" style="display:none">Bulk Select</button>
+          <button id="swBulkClearBtn" class="btn btn-sm btn-outline-secondary" style="display:none">Clear</button>
+          <select id="swBulkVlanSelect" class="form-select form-select-sm" style="width:130px;display:none"></select>
+          <button id="swBulkVlanBtn" class="btn btn-sm btn-primary" style="display:none">Apply VLAN</button>
+          <button id="swBulkShutBtn" class="btn btn-sm btn-outline-danger" style="display:none">Shutdown</button>
+          <button id="swBulkNoShutBtn" class="btn btn-sm btn-outline-success" style="display:none">No Shutdown</button>
+          <span id="swBulkMsg" style="font-size:.72rem;color:var(--text-muted);display:none"></span>
           <button id="swWriteMemoryBtn" class="btn btn-sm btn-outline-warning" style="display:none">Write Memory</button>
           <button id="swPermsCogBtn" class="btn btn-sm btn-outline-secondary" style="display:none" title="Manage switch write access">⚙ Manage Access</button>
           <span id="swVisLastUpdate" style="font-size:.72rem;color:var(--text-muted);margin-left:auto"></span>

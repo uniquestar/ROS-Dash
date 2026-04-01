@@ -2174,6 +2174,55 @@ sendNotif = function(title, body, tag){
   var _swList    = [];   // [{name, modules}]
   var _selSwitch = '';
   var _selModule = 1;
+  var _bulkMode = false;
+  var _bulkSelected = new Set();
+
+  function selectedPorts() {
+    var allData = _swData[_selSwitch] || [];
+    return allData.filter(function(p){ return _bulkSelected.has(p.ifName) && !p.isUplink; });
+  }
+
+  function syncBulkSelectionWithData() {
+    var valid = new Set((_swData[_selSwitch] || []).map(function(p){ return p.ifName; }));
+    Array.from(_bulkSelected).forEach(function(ifName){
+      if (!valid.has(ifName)) _bulkSelected.delete(ifName);
+    });
+  }
+
+  function updateBulkControls() {
+    var swMeta = _swMeta[_selSwitch] || {};
+    var canWrite = !!_selSwitch && !!swMeta.userCanWrite && !!swMeta.writeEnabled;
+    var count = selectedPorts().length;
+
+    var modeBtn = $('swBulkModeBtn');
+    var clearBtn = $('swBulkClearBtn');
+    var vlanSel = $('swBulkVlanSelect');
+    var vlanBtn = $('swBulkVlanBtn');
+    var shutBtn = $('swBulkShutBtn');
+    var noShutBtn = $('swBulkNoShutBtn');
+    var msg = $('swBulkMsg');
+
+    if (modeBtn) {
+      modeBtn.style.display = canWrite ? '' : 'none';
+      modeBtn.textContent = _bulkMode ? 'Exit Bulk ('+count+')' : 'Bulk Select';
+      modeBtn.className = 'btn btn-sm ' + (_bulkMode ? 'btn-primary' : 'btn-outline-primary');
+    }
+    if (clearBtn) clearBtn.style.display = (canWrite && _bulkMode) ? '' : 'none';
+    if (vlanSel) {
+      var showVlan = canWrite && _bulkMode;
+      vlanSel.style.display = showVlan ? '' : 'none';
+      if (showVlan) {
+        var opts = (swMeta.vlanOptions || []).slice().sort(function(a,b){ return a-b; });
+        vlanSel.innerHTML = '<option value="">VLAN…</option>' + opts.map(function(v){
+          return '<option value="'+v+'">VLAN '+v+'</option>';
+        }).join('');
+      }
+    }
+    if (vlanBtn) vlanBtn.style.display = (canWrite && _bulkMode) ? '' : 'none';
+    if (shutBtn) shutBtn.style.display = (canWrite && _bulkMode) ? '' : 'none';
+    if (noShutBtn) noShutBtn.style.display = (canWrite && _bulkMode) ? '' : 'none';
+    if (msg) msg.style.display = (canWrite && _bulkMode) ? '' : 'none';
+  }
 
   function updateWriteMemoryButton() {
     var btn = $('swWriteMemoryBtn');
@@ -2183,6 +2232,7 @@ sendNotif = function(title, body, tag){
     btn.style.display = show ? '' : 'none';
     btn.disabled = false;
     btn.textContent = 'Write Memory';
+    updateBulkControls();
   }
 
   // Tab switching
@@ -2250,6 +2300,7 @@ function loadSwitchPorts(name) {
           }
         }
         _selModule = modules[0] || 1;
+        syncBulkSelectionWithData();
         renderVisualiser(name, _selModule);
         updateWriteMemoryButton();
       }).catch(function(){
@@ -2333,9 +2384,10 @@ function renderVisualiser(switchName, module) {
               'width:36px;height:28px;border-radius:3px 3px 0 0;'+
               'background:'+portColor(topP)+';'+
               'border:'+portBorder(topP)+';border-bottom:none;'+
+              (_bulkSelected.has(topP.ifName) ? 'box-shadow:0 0 0 2px rgba(250,204,21,.9) inset;' : '')+
               'display:flex;align-items:center;justify-content:center;'+
               'font-size:.6rem;font-family:var(--font-mono);color:var(--text-muted);'+
-              'cursor:pointer;position:relative" title="'+esc(portTitle(topP))+'">'+
+              'cursor:' + (_bulkMode ? 'cell' : 'pointer') + ';position:relative" title="'+esc(portTitle(topP))+'">'+
               portLabel(topP)+
               (topDisabled ? '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#f87171;font-weight:700;font-size:1rem;pointer-events:none;line-height:1">✕</div>' : '')+
               (topP.poeStatus==='delivering' ? '<div style="position:absolute;bottom:2px;right:2px;width:5px;height:5px;border-radius:50%;background:#22c55e"></div>' : '')+
@@ -2346,9 +2398,10 @@ function renderVisualiser(switchName, module) {
               'width:36px;height:28px;border-radius:0 0 3px 3px;'+
               'background:'+portColor(botP)+';'+
               'border:'+portBorder(botP)+';border-top:none;'+
+              (_bulkSelected.has(botP.ifName) ? 'box-shadow:0 0 0 2px rgba(250,204,21,.9) inset;' : '')+
               'display:flex;align-items:center;justify-content:center;'+
               'font-size:.6rem;font-family:var(--font-mono);color:var(--text-muted);'+
-              'cursor:pointer;position:relative" title="'+esc(portTitle(botP))+'">'+
+              'cursor:' + (_bulkMode ? 'cell' : 'pointer') + ';position:relative" title="'+esc(portTitle(botP))+'">'+
               portLabel(botP)+
               (botDisabled ? '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#f87171;font-weight:700;font-size:1rem;pointer-events:none;line-height:1">✕</div>' : '')+
               (botP.poeStatus==='delivering' ? '<div style="position:absolute;bottom:2px;right:2px;width:5px;height:5px;border-radius:50%;background:#22c55e"></div>' : '')+
@@ -2365,6 +2418,7 @@ function renderVisualiser(switchName, module) {
       '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(255,255,255,.05);border:1px solid var(--border);margin-right:4px"></span>Down</span>'+
       '<span><span style="display:inline-flex;width:10px;height:10px;border-radius:2px;background:rgba(248,113,113,.16);border:1px solid rgba(248,113,113,.65);margin-right:4px;align-items:center;justify-content:center;color:#f87171;font-size:.55rem;line-height:1">✕</span>Admin Disabled</span>'+
       '<span><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#22c55e;margin-right:4px;vertical-align:middle"></span>PoE active</span>'+
+      (_bulkMode ? '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;box-shadow:0 0 0 2px rgba(250,204,21,.9) inset;margin-right:4px;vertical-align:middle"></span>Bulk selected</span>' : '')+
     '</div>';
 
     // Build one card per module
@@ -2387,9 +2441,19 @@ function renderVisualiser(switchName, module) {
       el.addEventListener('click', function(){
         var ifName = el.dataset.port;
         var p = allData.find(function(x){ return x.ifName === ifName; });
-        if (p) showPortModal(p);
+        if (!p) return;
+        if (_bulkMode) {
+          if (p.isUplink) return;
+          if (_bulkSelected.has(p.ifName)) _bulkSelected.delete(p.ifName);
+          else _bulkSelected.add(p.ifName);
+          updateBulkControls();
+          renderVisualiser(_selSwitch, _selModule);
+          return;
+        }
+        showPortModal(p);
       });
     });
+    updateBulkControls();
   }
 
   function showPortModal(p) {
@@ -2601,6 +2665,80 @@ function renderVisualiser(switchName, module) {
       setTimeout(updateWriteMemoryButton, 1400);
     });
   });
+
+  var bulkModeBtn = $('swBulkModeBtn');
+  if (bulkModeBtn) bulkModeBtn.addEventListener('click', function(){
+    _bulkMode = !_bulkMode;
+    if (!_bulkMode) _bulkSelected.clear();
+    updateBulkControls();
+    if (_selSwitch) renderVisualiser(_selSwitch, _selModule);
+  });
+
+  var bulkClearBtn = $('swBulkClearBtn');
+  if (bulkClearBtn) bulkClearBtn.addEventListener('click', function(){
+    _bulkSelected.clear();
+    updateBulkControls();
+    if (_selSwitch) renderVisualiser(_selSwitch, _selModule);
+  });
+
+  async function runBulkAction(type) {
+    var msg = $('swBulkMsg');
+    var ports = selectedPorts();
+    if (!ports.length) {
+      if (msg) msg.textContent = 'Select at least one non-uplink port';
+      return;
+    }
+    if (msg) msg.textContent = 'Applying to ' + ports.length + ' ports…';
+
+    var ok = 0;
+    var failed = 0;
+    var vlanSel = $('swBulkVlanSelect');
+    var vlan = vlanSel ? parseInt(vlanSel.value, 10) : null;
+    if (type === 'vlan' && !vlan) {
+      if (msg) msg.textContent = 'Pick a VLAN first';
+      return;
+    }
+
+    for (const p of ports) {
+      try {
+        var url = '';
+        var body = {};
+        if (type === 'vlan') {
+          url = '/api/switches/'+encodeURIComponent(_selSwitch)+'/port-vlan';
+          body = { ifName: p.ifName, vlan: vlan };
+        } else if (type === 'shutdown') {
+          url = '/api/switches/'+encodeURIComponent(_selSwitch)+'/port-admin';
+          body = { ifName: p.ifName, enabled: false };
+        } else if (type === 'noshutdown') {
+          url = '/api/switches/'+encodeURIComponent(_selSwitch)+'/port-admin';
+          body = { ifName: p.ifName, enabled: true };
+        }
+        var r = await secureApiCall(url, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        var data = await r.json();
+        if (data && !data.error) ok++;
+        else failed++;
+      } catch (_e) {
+        failed++;
+      }
+    }
+
+    if (msg) msg.textContent = 'Done: '+ok+' ok, '+failed+' failed';
+    _bulkSelected.clear();
+    _bulkMode = false;
+    loadSwitchPorts(_selSwitch);
+  }
+
+  var bulkVlanBtn = $('swBulkVlanBtn');
+  if (bulkVlanBtn) bulkVlanBtn.addEventListener('click', function(){ runBulkAction('vlan'); });
+  var bulkShutBtn = $('swBulkShutBtn');
+  if (bulkShutBtn) bulkShutBtn.addEventListener('click', function(){ runBulkAction('shutdown'); });
+  var bulkNoShutBtn = $('swBulkNoShutBtn');
+  if (bulkNoShutBtn) bulkNoShutBtn.addEventListener('click', function(){ runBulkAction('noshutdown'); });
 
   // Load switch list on startup so visualiser is ready
   loadSwitchList();
