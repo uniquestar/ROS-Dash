@@ -1,136 +1,129 @@
 /**
- * OUI (Organizationally Unique Identifier) lookup
+ * OUI (Organizationally Unique Identifier) lookup with API caching
  * Maps MAC address prefixes to hardware vendor names
- * Curated list of common network devices
+ * 
+ * - Reads cached OUI mappings from persistent file on startup
+ * - Checks cache first for fast lookups (synchronous)
+ * - Fetches unknown OUIs from https://www.macvendorlookup.com/api 
+ * - Caches results to persistent file for future deployments
+ * - Non-blocking: unknown OUIs trigger background fetch, returns null initially
  */
 
-const ouiMap = {
-  // Apple
-  '00:00:00': 'XEROX',
-  '00:05:02': 'Apple',
-  '00:1a:92': 'Apple',
-  '08:00:07': 'Apple',
-  '3c:07:71': 'Apple',
-  '40:6c:8f': 'Apple',
-  '54:26:96': 'Apple',
-  '5c:f9:dd': 'Apple',
-  '7c:69:f6': 'Apple',
-  'a4:d6:aa': 'Apple',
-  'b8:27:eb': 'Raspberry Pi',
+const fs = require('fs');
+const path = require('path');
 
-  // Cisco
-  '00:00:0c': 'Cisco',
-  '00:12:43': 'Cisco',
-  '00:1b:0c': 'Cisco',
-  '00:1b:6c': 'Cisco',
-  '00:1d:45': 'Cisco',
-  '00:21:1b': 'Cisco',
-  '00:22:55': 'Cisco',
-  '00:24:c4': 'Cisco',
-  '28:6e:d0': 'Cisco',
+// Persistent cache location (outside container, mounted as volume)
+const CACHE_DIR = path.join(process.cwd(), 'data');
+const CACHE_FILE = path.join(CACHE_DIR, 'oui-cache.json');
 
-  // Juniper
-  '00:05:85': 'Juniper',
-  '00:10:db': 'Juniper',
-  '94:40:c6': 'Juniper',
-
-  // Arista
-  '00:1c:73': 'Arista',
-  'c0:01:ca': 'Arista',
-
-  // MikroTik
-  '00:0c:42': 'MikroTik',
-  '4c:5e:0c': 'MikroTik',
-
-  // Dell
-  '00:02:b3': 'Dell',
-  '00:1a:a0': 'Dell',
-  '00:1f:a0': 'Dell',
-  '00:25:b5': 'Dell',
-  '44:a8:42': 'Dell',
-
-  // HPE/HP
-  '00:01:e6': 'HPE',
-  '00:04:ea': 'HPE',
-  '00:07:aa': 'HPE',
-  '00:11:85': 'HPE',
-  '00:1e:0b': 'HPE',
-  '00:1f:29': 'HPE',
-  '00:25:86': 'HPE',
-  '14:cc:20': 'HPE',
-
-  // Intel
-  '00:13:20': 'Intel',
-  '00:19:99': 'Intel',
-  '54:e1:ad': 'Intel',
-  'a0:36:9f': 'Intel',
-
-  // Broadcom
-  '00:10:18': 'Broadcom',
-  '00:11:20': 'Broadcom',
-  '00:1a:73': 'Broadcom',
-
-  // Ubiquiti
-  '00:15:6d': 'Ubiquiti',
-  '00:27:22': 'Ubiquiti',
-  '80:2a:a8': 'Ubiquiti',
-  'a094f3': 'Ubiquiti',
-
-  // TP-Link
-  '00:0f:e2': 'TP-Link',
-  '28:3f:46': 'TP-Link',
-  '3c:37:86': 'TP-Link',
-
-  // Netgear
-  '00:1a:2b': 'Netgear',
-  '00:22:b0': 'Netgear',
-  '50:46:5d': 'Netgear',
-
-  // D-Link
-  '00:01:e0': 'D-Link',
-  '00:13:10': 'D-Link',
-  '60:a4:4c': 'D-Link',
-
-  // Hewlett Packard
-  '00:11:0a': 'HP',
-  '00:13:21': 'HP',
-  '74:86:7a': 'HP',
-
-  // ASUS
-  '00:13:d4': 'ASUS',
-  '20:cf:30': 'ASUS',
-  '88:51:fb': 'ASUS',
-
-  // Fortinet
-  '00:09:0f': 'Fortinet',
-  '54:a3:78': 'Fortinet',
-
-  // Palo Alto
-  '00:1a:3d': 'Palo Alto',
-
-  // F5
-  '00:11:11': 'F5 Networks',
-  '00:50:56': 'VMware',
-
-  // Linux/Generic (common)
-  '52:54:00': 'QEMU',
-  '00:50:f2': 'Microsoft',
-  '08:00:27': 'VirtualBox',
-};
+let _cache = {};
+let _pendingFetches = new Set();
 
 /**
- * Look up vendor name from MAC address
- * @param {string} mac - MAC address (any format: AA:BB:CC:DD:EE:FF, AABBCCDDEEFF, AA-BB-CC-DD-EE-FF)
- * @returns {string|null} Vendor name or null if not found
+ * Initialize cache from disk
+ */
+function initOuiCache() {
+  try {
+    if (!fs.existsSync(CACHE_DIR)) {
+      fs.mkdirSync(CACHE_DIR, { recursive: true });
+    }
+    if (fs.existsSync(CACHE_FILE)) {
+      const data = fs.readFileSync(CACHE_FILE, 'utf-8');
+      _cache = JSON.parse(data);
+      console.log(`[OUI] Loaded ${Object.keys(_cache).length} cached vendors from ${CACHE_FILE}`);
+    }
+  } catch (err) {
+    console.warn(`[OUI] Failed to load cache from ${CACHE_FILE}:`, err.message);
+    _cache = {};
+  }
+}
+
+/**
+ * Save cache to disk (async, non-blocking)
+ */
+function saveCacheToDisk() {
+  try {
+    if (!fs.existsSync(CACHE_DIR)) {
+      fs.mkdirSync(CACHE_DIR, { recursive: true });
+    }
+    fs.writeFile(CACHE_FILE, JSON.stringify(_cache, null, 2), (err) => {
+      if (err) console.warn(`[OUI] Failed to save cache:`, err.message);
+    });
+  } catch (err) {
+    console.warn(`[OUI] Failed to save cache:`, err.message);
+  }
+}
+
+/**
+ * Fetch vendor from API with timeout (requires node 18+)
+ */
+async function fetchFromApi(oui) {
+  const url = `https://www.macvendorlookup.com/api/v2/${oui}?format=json`;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.vendorName) {
+        _cache[oui] = data.vendorName;
+        saveCacheToDisk();
+        return data.vendorName;
+      }
+    }
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.warn(`[OUI] API lookup failed for ${oui}:`, err.message);
+    }
+  }
+  return null;
+}
+
+/**
+ * Look up vendor name from MAC address (SYNCHRONOUS - returns from cache only)
+ * Unknown MACs trigger background API fetch + cache
+ * @param {string} mac - MAC address (any format)
+ * @returns {string|null} Vendor name from cache, or null if not yet cached
  */
 function lookupVendor(mac) {
   if (!mac || typeof mac !== 'string') return null;
   
-  // Normalize to colon-separated format
   const normalized = mac.toLowerCase().replace(/[-:]/g, ':').toUpperCase();
-  const prefix = normalized.substring(0, 8); // First 3 octets (OUI)
+  const oui = normalized.substring(0, 8);
   
-  return ouiMap[prefix] || null;
+  if (_cache[oui]) {
+    return _cache[oui];
+  }
+  
+  if (!_pendingFetches.has(oui)) {
+    _pendingFetches.add(oui);
+    fetchFromApi(oui).then(() => {
+      _pendingFetches.delete(oui);
+    });
+  }
+  
+  return null;
 }
 
-module.exports = { lookupVendor };
+/**
+ * Look up vendor name asynchronously (waits for API if needed)
+ * @param {string} mac - MAC address (any format)
+ * @returns {Promise<string|null>} Vendor name from cache or API
+ */
+async function lookupVendorAsync(mac) {
+  if (!mac || typeof mac !== 'string') return null;
+  
+  const normalized = mac.toLowerCase().replace(/[-:]/g, ':').toUpperCase();
+  const oui = normalized.substring(0, 8);
+  
+  if (_cache[oui]) {
+    return _cache[oui];
+  }
+  
+  return await fetchFromApi(oui);
+}
+
+module.exports = { initOuiCache, lookupVendor, lookupVendorAsync };
