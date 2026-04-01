@@ -2437,7 +2437,7 @@ function renderVisualiser(switchName, module) {
             '<td>'+esc(currentAccessVlan || '—')+'</td></tr>'+
         '<tr><td style="color:var(--text-muted)">PoE</td>'+
             '<td><span style="color:'+poeColor+'">'+p.poeStatus+'</span></td></tr>'+
-        ((p.poePower && p.poePower > 0)
+        ((p.poeStatus === 'delivering' && p.poePower && p.poePower > 0)
           ? '<tr><td style="color:var(--text-muted)">PoE Power</td><td>'+esc(String(p.poePower))+' W</td></tr>'
           : '')+
         (p.poeDescr ? '<tr><td style="color:var(--text-muted)">Device Type</td><td>'+esc(p.poeDescr)+'</td></tr>' : '')+
