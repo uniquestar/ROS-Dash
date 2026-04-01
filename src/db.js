@@ -340,6 +340,10 @@ function getAllInventory() {
   return _db.prepare('SELECT mac, first_seen, last_seen, notes, tags FROM inventory ORDER BY last_seen DESC').all();
 }
 
+function updateInventoryNotes(mac, notes, tags) {
+  _db.prepare('UPDATE inventory SET notes = ?, tags = ? WHERE mac = ?').run(notes || '', tags || '', mac.toLowerCase());
+}
+
 // ── Audit log operations ──────────────────────────────────────────────────────
 
 function addAuditLog({ username, action, target, detail, outcome }) {
@@ -348,11 +352,13 @@ function addAuditLog({ username, action, target, detail, outcome }) {
   ).run(new Date().toISOString(), username || 'unknown', action, target || '', detail || null, outcome || 'ok');
 }
 
-function getAuditLogs({ limit = 200, offset = 0, username = '', action = '' } = {}) {
+function getAuditLogs({ limit = 200, offset = 0, username = '', action = '', fromDate = '', toDate = '' } = {}) {
   const params = [];
   let where = '1=1';
   if (username) { where += ' AND username = ?'; params.push(username); }
   if (action)   { where += ' AND action LIKE ?'; params.push(action + '%'); }
+  if (fromDate) { where += ' AND DATE(ts) >= ?'; params.push(fromDate); }
+  if (toDate)   { where += ' AND DATE(ts) <= ?'; params.push(toDate); }
   const total = _db.prepare(`SELECT COUNT(*) as c FROM audit_log WHERE ${where}`).get(...params).c;
   const logs  = _db.prepare(
     `SELECT id, ts, username, action, target, detail, outcome FROM audit_log WHERE ${where} ORDER BY ts DESC LIMIT ? OFFSET ?`
@@ -371,4 +377,4 @@ function getTokenGeneration() {
   return _db.prepare('SELECT value FROM meta WHERE key = ?').get('token_generation')?.value || '1';
 }
 
-module.exports = { initDb, getDb, getUser, getAllUsers, createUser, updatePassword, setMustChangePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages, getTokenGeneration, upsertInventoryMac, getAllInventory, addAuditLog, getAuditLogs, DEFAULT_READ_PAGES, PAGES };
+module.exports = { initDb, getDb, getUser, getAllUsers, createUser, updatePassword, setMustChangePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages, getTokenGeneration, upsertInventoryMac, getAllInventory, updateInventoryNotes, addAuditLog, getAuditLogs, DEFAULT_READ_PAGES, PAGES };

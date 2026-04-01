@@ -3201,7 +3201,7 @@ function renderVisualiser(switchName, module) {
         if (badge) badge.textContent = filtered.length;
         if (nb)    nb.textContent    = devices.filter(function(d){ return d.online; }).length || '';
         if (!filtered.length) {
-          tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No devices'+(f||sf?' matching filter':'')+'&#8230;</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="11" class="empty-state">No devices'+(f||sf?' matching filter':'')+'&#8230;</td></tr>';
           return;
         }
         tbody.innerHTML = filtered.map(function(d) {
@@ -3212,16 +3212,19 @@ function renderVisualiser(switchName, module) {
           return '<tr style="opacity:'+(d.online?'1':'.65')+'">'+
             '<td style="font-family:var(--font-mono);font-size:.68rem;color:var(--text-muted)">'+esc(d.mac)+'</td>'+
             '<td style="font-weight:600;font-size:.78rem">'+esc(d.hostname||'—')+'</td>'+
+            '<td style="font-size:.72rem;color:var(--text-muted)">'+esc(d.vendor||'—')+'</td>'+
             '<td style="font-family:var(--font-mono);font-size:.72rem;color:var(--accent-rx)">'+esc(d.ip||'—')+'</td>'+
             '<td style="font-size:.75rem;color:var(--text-muted)">'+esc(d.switch||'—')+'</td>'+
             '<td style="font-family:var(--font-mono);font-size:.72rem">'+esc(d.switchPort||'—')+'</td>'+
-            '<td style="font-family:var(--font-mono);font-size:.72rem;text-align:center">'+esc(String(d.vlan||'—'))+'</td>'+
             '<td>'+dot+'<span style="font-size:.72rem;'+statusColor+'">'+esc(d.status||'offline')+'</span></td>'+
             '<td style="font-family:var(--font-mono);font-size:.67rem;color:var(--text-muted)">'+esc(fmtDate(d.firstSeen))+'</td>'+
             '<td style="font-family:var(--font-mono);font-size:.67rem;color:var(--text-muted)">'+esc(fmtDate(d.lastSeen))+'</td>'+
+            '<td style="font-size:.72rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.notes||'')+'">'+esc((d.notes||'').substring(0,30)+(d.notes&&d.notes.length>30?'…':''))+'</td>'+
+            '<td style="text-align:center"><button class="btn btn-xs btn-ghost" data-mac="'+esc(d.mac)+'" data-edit-inv style="padding:2px 6px;font-size:.65rem">Edit</button></td>'+
             '</tr>';
         }).join('');
       }
+
 
       window.loadInventory = function() {
         var tbody = $('inventoryTable');
@@ -3244,6 +3247,71 @@ function renderVisualiser(switchName, module) {
       if (sf) sf.addEventListener('change', function(){ renderInventory(_inventoryData, ($('inventorySearch')||{value:''}).value, this.value); });
       var rb = $('inventoryRefresh');
       if (rb) rb.addEventListener('click', window.loadInventory);
+
+      // Inventory edit modal
+      var modal = $('inventoryEditModal');
+      var modalMacInput = $('invEditMac');
+      var modalNotesInput = $('invEditNotes');
+      var modalTagsInput = $('invEditTags');
+      var modalSaveBtn = $('invEditSave');
+      var modalCancelBtn = $('invEditCancel');
+      var currentEditMac = null;
+
+      function openEditModal(mac) {
+        var device = _inventoryData.find(function(d){ return d.mac === mac; });
+        if (!device) return;
+        currentEditMac = mac;
+        modalMacInput.value = mac;
+        modalNotesInput.value = device.notes || '';
+        modalTagsInput.value = device.tags || '';
+        if (modal) modal.style.display = 'flex';
+      }
+
+      function closeEditModal() {
+        if (modal) modal.style.display = 'none';
+        currentEditMac = null;
+        modalMacInput.value = '';
+        modalNotesInput.value = '';
+        modalTagsInput.value = '';
+      }
+
+      if (modalCancelBtn) modalCancelBtn.addEventListener('click', closeEditModal);
+      if (modal) modal.addEventListener('click', function(e){
+        if (e.target === modal) closeEditModal();
+      });
+
+      if (modalSaveBtn) {
+        modalSaveBtn.addEventListener('click', function(){
+          if (!currentEditMac) return;
+          var notes = modalNotesInput.value;
+          var tags = modalTagsInput.value;
+          getCsrfToken().then(function(token){
+            fetch('/api/inventory/'+encodeURIComponent(currentEditMac), {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json', 'x-csrf-token': token },
+              body: JSON.stringify({ notes: notes, tags: tags })
+            })
+            .then(function(r){ return r.json(); })
+            .then(function(data){
+              if (data.success || data.error === undefined) {
+                closeEditModal();
+                window.loadInventory();
+              }
+            })
+            .catch(function(err){ alert('Failed to save: ' + err.message); });
+          });
+        });
+      }
+
+      // Event delegation for edit buttons
+      document.addEventListener('click', function(e){
+        if (e.target && e.target.getAttribute('data-edit-inv')) {
+          e.preventDefault();
+          var mac = e.target.getAttribute('data-mac');
+          openEditModal(mac);
+        }
+      });
     })();
 
     // ── Audit Log ───────────────────────────────────────────────────────────────
@@ -3299,9 +3367,13 @@ function renderVisualiser(switchName, module) {
         }
         var user   = ($('auditLogUser')  ||{value:''}).value.trim();
         var action = ($('auditLogAction')||{value:''}).value;
+        var fromDate = ($('auditLogFromDate')||{value:''}).value;
+        var toDate   = ($('auditLogToDate')  ||{value:''}).value;
         var url = '/api/audit-log?limit='+_auditLimit+'&offset='+_auditOffset;
-        if (user)   url += '&username='+encodeURIComponent(user);
-        if (action) url += '&action='+encodeURIComponent(action);
+        if (user)     url += '&username='+encodeURIComponent(user);
+        if (action)   url += '&action='+encodeURIComponent(action);
+        if (fromDate) url += '&fromDate='+encodeURIComponent(fromDate);
+        if (toDate)   url += '&toDate='+encodeURIComponent(toDate);
         fetch(url, { credentials:'include' })
           .then(function(r){ return r.json(); })
           .then(function(data){
@@ -3319,10 +3391,14 @@ function renderVisualiser(switchName, module) {
       var rb  = $('auditLogRefresh');   if (rb)  rb.addEventListener('click', function(){ window.loadAuditLog(true); });
       var lm  = $('auditLogLoadMore');  if (lm)  lm.addEventListener('click', function(){ window.loadAuditLog(false); });
       var userInput = $('auditLogUser');
+      var fromInput = $('auditLogFromDate');
+      var toInput   = $('auditLogToDate');
       var debounce;
       if (userInput) userInput.addEventListener('input', function(){ clearTimeout(debounce); debounce = setTimeout(function(){ window.loadAuditLog(true); }, 400); });
       var actionSel = $('auditLogAction');
       if (actionSel) actionSel.addEventListener('change', function(){ window.loadAuditLog(true); });
+      if (fromInput) fromInput.addEventListener('change', function(){ window.loadAuditLog(true); });
+      if (toInput)   toInput.addEventListener('change', function(){ window.loadAuditLog(true); });
     })();
 
   // Hook into perms — dispatch event from existing /api/me handler
