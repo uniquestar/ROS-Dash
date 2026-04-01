@@ -15,6 +15,7 @@ const { z } = require('zod');
 const { RouterOsInputError, sanitizeRosId, sanitizePeerName, sanitizeAddressListName } = require('./util/routerosSanitize');
 const { getErrorMessage } = require('./util/errors');
 const { validatePassword } = require('./util/passwordPolicy');
+const { lookupVendor } = require('./util/oui');
 
 const ROS                  = require('./routeros/client');
 const { fetchInterfaces }  = require('./collectors/interfaces');
@@ -631,7 +632,7 @@ app.get('/logout', (_req, res) => {
 
 // User management API
 const crypto_users = require('crypto');
-const { getAllUsers, getUser, createUser, updatePassword, setMustChangePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages, upsertInventoryMac, getAllInventory, addAuditLog, getAuditLogs } = require('./db');
+const { getAllUsers, getUser, createUser, updatePassword, setMustChangePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages, upsertInventoryMac, getAllInventory, updateInventoryNotes, addAuditLog, getAuditLogs } = require('./db');
 
 function hashPassword(password) {
   const salt = crypto_users.randomBytes(16).toString('hex');
@@ -819,13 +820,13 @@ app.get('/api/inventory', requireAuth, requirePageRead('inventory'), (req, res) 
     // Currently visible devices
     for (const [mac, entry] of seen.entries()) {
       const db = dbMap.get(mac) || {};
-      devices.push({ ...entry, firstSeen: db.first_seen || now, lastSeen: db.last_seen || now, notes: db.notes || '', tags: db.tags || '', online: true });
+      devices.push({ ...entry, vendor: lookupVendor(mac), firstSeen: db.first_seen || now, lastSeen: db.last_seen || now, notes: db.notes || '', tags: db.tags || '', online: true });
     }
 
     // Historical devices no longer visible
     for (const row of dbRecords) {
       if (!seen.has(row.mac)) {
-        devices.push({ mac: row.mac, ip: '', hostname: '', status: 'offline', leaseType: '', switch: '', switchPort: '', vlan: null, firstSeen: row.first_seen, lastSeen: row.last_seen, notes: row.notes || '', tags: row.tags || '', online: false });
+        devices.push({ mac: row.mac, ip: '', hostname: '', status: 'offline', leaseType: '', switch: '', switchPort: '', vlan: null, vendor: lookupVendor(row.mac), firstSeen: row.first_seen, lastSeen: row.last_seen, notes: row.notes || '', tags: row.tags || '', online: false });
       }
     }
 
@@ -842,9 +843,30 @@ app.get('/api/audit-log', requireAuth, requirePageRead('auditlog'), (req, res) =
     const offset   = Math.max(0, parseInt(req.query.offset || '0',   10));
     const username = String(req.query.username || '').trim();
     const action   = String(req.query.action   || '').trim();
-    const result   = getAuditLogs({ limit, offset, username, action });
+    const fromDate = String(req.query.fromDate || '').trim();
+    const toDate   = String(req.query.toDate   || '').trim();
+    const result   = getAuditLogs({ limit, offset, username, action, fromDate, toDate });
     res.json(result);
   } catch (e) {
+    res.status(500).json({ error: getErrorMessage(e) });
+  }
+});
+
+// Inventory — update notes/tags for a device
+app.post('/api/inventory/:mac', requireAuth, requirePageWrite('inventory'), (req, res) => {
+  try {
+    const mac = req.params.mac;
+    const { notes, tags } = req.body;
+    
+    if (!mac || typeof mac !== 'string') {
+      return res.status(400).json({ error: 'Invalid MAC address' });
+    }
+    
+    updateInventoryNotes(mac, notes || '', tags || '');
+    auditLog(req, 'inventory-edit', mac, 'Updated notes/tags', 'ok');
+    res.json({ success: true });
+  } catch (e) {
+    auditLog(req, 'inventory-edit', req.params.mac, 'Failed to update', 'error');
     res.status(500).json({ error: getErrorMessage(e) });
   }
 });

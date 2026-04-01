@@ -1054,14 +1054,14 @@
           <div class="data-scroll" style="max-height:calc(100vh - 205px);overflow-y:auto">
             <table class="table table-vcenter mb-0" style="table-layout:fixed;width:100%">
               <colgroup>
-                <col style="width:14%"><col style="width:16%"><col style="width:11%">
-                <col style="width:12%"><col style="width:10%"><col style="width:6%">
-                <col style="width:10%"><col style="width:11%"><col style="width:10%">
+                <col style="width:12%"><col style="width:12%"><col style="width:10%">
+                <col style="width:11%"><col style="width:9%"><col style="width:5%">
+                <col style="width:9%"><col style="width:10%"><col style="width:10%"><col style="width:7%"><col style="width:5%">
               </colgroup>
               <thead style="position:sticky;top:0;background:var(--bg-card)">
-                <tr><th>MAC</th><th>Hostname</th><th>IP</th><th>Switch</th><th>Port</th><th>VLAN</th><th>Status</th><th>First Seen</th><th>Last Seen</th></tr>
+                <tr><th>MAC</th><th>Hostname</th><th>Vendor</th><th>IP</th><th>Switch</th><th>Port</th><th>Status</th><th>First Seen</th><th>Last Seen</th><th>Notes</th><th></th></tr>
               </thead>
-              <tbody id="inventoryTable"><tr><td colspan="9" class="empty-state">Load the page to populate inventory…</td></tr></tbody>
+              <tbody id="inventoryTable"><tr><td colspan="11" class="empty-state">Load the page to populate inventory…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -1158,6 +1158,8 @@
               <option value="wg">WireGuard</option>
               <option value="me">Self</option>
             </select>
+            <input id="auditLogFromDate" type="date" class="form-control form-control-sm" style="width:140px" title="From date">
+            <input id="auditLogToDate" type="date" class="form-control form-control-sm" style="width:140px" title="To date">
             <button id="auditLogRefresh" class="btn btn-sm btn-outline-secondary">Refresh</button>
             <span id="auditLogBadge" class="badge bg-blue" style="font-family:var(--font-mono);font-size:.68rem">0</span>
           </div>
@@ -1371,6 +1373,29 @@
 </div>
 
 <div id="kbdHint"><kbd>1</kbd>&#8211;<kbd>7</kbd> pages &nbsp;&#183;&nbsp; <kbd>/</kbd> log search</div>
+
+<!-- Inventory edit modal -->
+<div id="inventoryEditModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:var(--bg-card);border-radius:6px;box-shadow:0 5px 15px rgba(0,0,0,.3);padding:20px;max-width:450px;width:90%">
+    <h5 style="margin-bottom:15px">Edit Device Details</h5>
+    <div style="margin-bottom:12px">
+      <label style="display:block;font-size:.85rem;font-weight:600;margin-bottom:4px">MAC Address</label>
+      <input id="invEditMac" type="text" class="form-control form-control-sm" disabled style="font-family:var(--font-mono);font-size:.75rem">
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;font-size:.85rem;font-weight:600;margin-bottom:4px">Notes</label>
+      <textarea id="invEditNotes" class="form-control form-control-sm" style="font-size:.85rem;height:60px"></textarea>
+    </div>
+    <div style="margin-bottom:15px">
+      <label style="display:block;font-size:.85rem;font-weight:600;margin-bottom:4px">Tags (comma-separated)</label>
+      <input id="invEditTags" type="text" class="form-control form-control-sm" placeholder="e.g., important, office, vip" style="font-size:.85rem">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button id="invEditCancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
+      <button id="invEditSave" class="btn btn-sm btn-primary">Save</button>
+    </div>
+  </div>
+</div>
 
 <!-- Country connections modal -->
 <div id="countryModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:2000;align-items:center;justify-content:center">
