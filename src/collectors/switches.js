@@ -309,6 +309,12 @@ class SwitchesCollector extends BaseCollector {
       poe.get(key).descr = vb.value ? vb.value.toString() : '';
     }
 
+    // Some Catalyst models report a baseline 1W even when a port is not
+    // actively delivering PoE. Normalize those idle/fault values to zero.
+    for (const data of poe.values()) {
+      if (data.status !== 'delivering' && data.power <= 1) data.power = 0;
+    }
+
     return poe;
   }
 
