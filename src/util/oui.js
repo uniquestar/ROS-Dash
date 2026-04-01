@@ -18,6 +18,13 @@ const CACHE_FILE = path.join(process.cwd(), 'oui-cache.json');
 let _cache = {};
 let _pendingFetches = new Set();
 
+function extractOui(mac) {
+  if (!mac || typeof mac !== 'string') return null;
+  const hex = mac.replace(/[^a-fA-F0-9]/g, '').toUpperCase();
+  if (hex.length < 6) return null;
+  return `${hex.slice(0,2)}:${hex.slice(2,4)}:${hex.slice(4,6)}`;
+}
+
 /**
  * Initialize cache from disk
  */
@@ -61,10 +68,12 @@ async function fetchFromApi(oui) {
     
     if (response.ok) {
       const data = await response.json();
-      if (data.vendorName) {
-        _cache[oui] = data.vendorName;
+      const row = Array.isArray(data) ? data[0] : data;
+      const vendor = row && (row.company || row.vendorName || row.vendor);
+      if (vendor) {
+        _cache[oui] = vendor;
         saveCacheToDisk();
-        return data.vendorName;
+        return vendor;
       }
     }
   } catch (err) {
@@ -82,10 +91,8 @@ async function fetchFromApi(oui) {
  * @returns {string|null} Vendor name from cache, or null if not yet cached
  */
 function lookupVendor(mac) {
-  if (!mac || typeof mac !== 'string') return null;
-  
-  const normalized = mac.toLowerCase().replace(/[-:]/g, ':').toUpperCase();
-  const oui = normalized.substring(0, 8);
+  const oui = extractOui(mac);
+  if (!oui) return null;
   
   if (_cache[oui]) {
     return _cache[oui];
@@ -107,10 +114,8 @@ function lookupVendor(mac) {
  * @returns {Promise<string|null>} Vendor name from cache or API
  */
 async function lookupVendorAsync(mac) {
-  if (!mac || typeof mac !== 'string') return null;
-  
-  const normalized = mac.toLowerCase().replace(/[-:]/g, ':').toUpperCase();
-  const oui = normalized.substring(0, 8);
+  const oui = extractOui(mac);
+  if (!oui) return null;
   
   if (_cache[oui]) {
     return _cache[oui];
