@@ -67,10 +67,11 @@ ROS-Dash polls Cisco Catalyst switches via SNMPv2c to build a complete port map,
 The Switches page includes a graphical port layout mirroring the physical switch faceplate:
 
 - Ports laid out in pairs, odd ports top row / even ports bottom row (left to right)
-- Colour coded: **blue** = up, **green** = up + PoE delivering, **grey** = down, **purple** = uplink, **red X / red border** = administratively disabled
+- Colour coded: **blue** = up, **green** = up + PoE delivering, **grey** = down, **purple** = uplink, **red X / red border** = administratively disabled, **yellow highlight** = bulk selected
 - Green dot indicator on ports actively delivering PoE power
 - Click any port for detail popup — MAC address, hostname, IP, VLAN, admin state, PoE status, live PoE power, device type
 - Users with write access to the selected switch can change access VLANs, shut/no-shut ports, and write memory directly from the visualiser
+- **Bulk mode** — enable `Bulk Select` to select multiple ports at once; apply a VLAN change, shutdown, or no-shutdown to all selected ports in a single action. Uplink ports are excluded from bulk operations
 - Users with `switchadmin:write` also get a `Manage Access` control to grant/revoke per-switch write access for other users
 - Multi-switch stacks show all members simultaneously, one panel per switch
 - Auto-refreshes every 120 seconds to reflect switch changes
