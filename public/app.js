@@ -3172,9 +3172,11 @@ function renderVisualiser(switchName, module) {
   document.querySelectorAll('.nav-item[data-page="vpn"]').forEach(function(el){
     el.addEventListener('click', function(){
       if (vpnCanWrite) loadWgData();
+    });
+  });
 
-    // ── Client Inventory ───────────────────────────────────────────────────────
-    (function(){
+  // ── Client Inventory ───────────────────────────────────────────────────────
+  (function(){
       var _inventoryData = [];
 
       function fmtDate(iso) {
@@ -3322,8 +3324,6 @@ function renderVisualiser(switchName, module) {
       var actionSel = $('auditLogAction');
       if (actionSel) actionSel.addEventListener('change', function(){ window.loadAuditLog(true); });
     })();
-    });
-  });
 
   // Hook into perms — dispatch event from existing /api/me handler
   // We patch the existing handler to fire a custom event
