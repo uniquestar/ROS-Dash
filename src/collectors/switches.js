@@ -738,6 +738,15 @@ class SwitchesCollector extends BaseCollector {
   }
 
   // Returns list of switch names and their member counts
+  getLastMacPorts() {
+    const results = [];
+    for (const sw of this.switches) {
+      const cached = this._macCache.get(sw.name);
+      if (cached && cached.length) results.push(...cached);
+    }
+    return results;
+  }
+
   getSwitchList() {
     return this.switches.map(sw => {
       const cached = this._portCache.get(sw.name);

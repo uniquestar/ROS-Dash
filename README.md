@@ -32,8 +32,10 @@ Forked and significantly enhanced from [MikroDash](https://github.com/SecOps-7/M
 | VPN | All WireGuard peers (active + idle) as tiles sorted active-first, with allowed IPs, endpoint, handshake, and traffic counters |
 | Connections | World map with animated arcs to destination countries, per-country protocol breakdown, top ports panel, and click-through connection detail modal |
 | Switches | Graphical port visualiser and port allocation table — populated via SNMP from Cisco Catalyst switches, with optional per-switch write controls |
+| Inventory | Canonical client inventory aggregated from DHCP leases, ARP, and switch MAC tables, with search and online/offline filtering |
 | Routes | Active routing table with flags, destination, gateway, distance, and type |
 | Address Lists | Firewall address lists grouped by list name with address, comment, and creation date |
+| Audit Log | Paginated write-action history with timestamp, user, action, target, detail, and outcome filters |
 | Firewall | Top hits, Filter, NAT, and Mangle rule tables with packet counts |
 | Logs | Live router log stream with severity filter and text search |
 | Users | User management — add, delete, change passwords, and configure per-page permissions |
@@ -43,6 +45,8 @@ Forked and significantly enhanced from [MikroDash](https://github.com/SecOps-7/M
 - **Session tokens** — HMAC-signed, 8-hour expiry, all sessions invalidated on server restart
 - **SQLite-backed user store** — replaces flat `users.json`, supports concurrent access
 - **Granular per-page permissions** — each user has independent read/write access per page
+- **Inventory page access** — `inventory:read` grants visibility of the Client Inventory page
+- **Audit Log page access** — `auditlog:read` grants visibility of the Audit Log page
 - **Switch Admin tier** — users with `switchadmin:write` can manage per-switch write grants from the Switches page
 - **Per-switch write grants** — users can be allowed to manage only specific switches while retaining read-only access to the rest
 - **Admin users** — full access to all pages including Users management
@@ -83,6 +87,18 @@ The Switches page includes a graphical port layout mirroring the physical switch
   - WireGuard peer disconnected / reconnected
   - CPU exceeds 90%
   - 100% ping loss to configured target
+
+### Client Inventory
+- Inventory data is built by correlating DHCP leases, ARP entries, and cached switch MAC table observations
+- Tracks first seen and last seen timestamps per MAC address
+- Shows online devices plus historical offline devices observed previously
+- Includes per-device switch, port, VLAN, status, hostname, and IP when available
+- Supports quick filtering by hostname, MAC, IP, switch, and online state
+
+### Audit Log
+- All state-changing operations are logged with timestamp, user, action, target, detail, and outcome
+- Covers DHCP reserve/release, WireGuard mutations, switch write actions, user management, and permission changes
+- Dedicated Audit Log page supports action/user filtering and incremental pagination
 
 ---
 

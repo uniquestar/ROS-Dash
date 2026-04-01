@@ -23,6 +23,8 @@ const PAGES = [
   { key: 'users',        label: 'Users',         sort_order: 11 },
   { key: 'about',        label: 'About',         sort_order: 12 },
   { key: 'switchadmin',  label: 'Switch Admin',  sort_order: 13 },
+  { key: 'inventory',    label: 'Inventory',     sort_order: 14 },
+  { key: 'auditlog',     label: 'Audit Log',     sort_order: 15 },
 ];
 
 // Pages everyone gets read access to by default
@@ -70,6 +72,24 @@ function initDb(dbPath) {
       can_write   INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (user_id, switch_name)
     );
+
+    CREATE TABLE IF NOT EXISTS inventory (
+      mac        TEXT PRIMARY KEY,
+      first_seen TEXT NOT NULL,
+      last_seen  TEXT NOT NULL,
+      notes      TEXT NOT NULL DEFAULT '',
+      tags       TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id       INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts       TEXT NOT NULL,
+      username TEXT NOT NULL,
+      action   TEXT NOT NULL,
+      target   TEXT NOT NULL DEFAULT '',
+      detail   TEXT,
+      outcome  TEXT NOT NULL DEFAULT 'ok'
+    );
   `);
 
   // Migration: add must_change_password to existing databases.
@@ -111,6 +131,21 @@ function initDb(dbPath) {
     }
   });
   grantNewPages();
+
+  // Migration: grant inventory and auditlog to anyone who has users read+write (admins)
+  const migrateInventoryAuditlog = _db.transaction(() => {
+    const grantUsers = _db.prepare(
+      'SELECT user_id FROM permissions WHERE page_key = ? AND can_read = 1 AND can_write = 1'
+    ).all('users');
+    const grant = _db.prepare(
+      'INSERT OR IGNORE INTO permissions (user_id, page_key, can_read, can_write) VALUES (?, ?, 1, 1)'
+    );
+    for (const { user_id } of grantUsers) {
+      grant.run(user_id, 'inventory');
+      grant.run(user_id, 'auditlog');
+    }
+  });
+  migrateInventoryAuditlog();
 
   // Migration: grant switchadmin.write to anyone who previously had switches.write
   const migrateSwitchAdmin = _db.transaction(() => {
@@ -291,6 +326,40 @@ function setSwitchPermission(userId, switchName, canWrite) {
   `).run(userId, switchName, canWrite ? 1 : 0, canWrite ? 1 : 0);
 }
 
+// ── Inventory operations ─────────────────────────────────────────────────────
+
+function upsertInventoryMac(mac, ts) {
+  _db.prepare(`
+    INSERT INTO inventory (mac, first_seen, last_seen)
+    VALUES (?, ?, ?)
+    ON CONFLICT(mac) DO UPDATE SET last_seen = excluded.last_seen
+  `).run(mac, ts, ts);
+}
+
+function getAllInventory() {
+  return _db.prepare('SELECT mac, first_seen, last_seen, notes, tags FROM inventory ORDER BY last_seen DESC').all();
+}
+
+// ── Audit log operations ──────────────────────────────────────────────────────
+
+function addAuditLog({ username, action, target, detail, outcome }) {
+  _db.prepare(
+    'INSERT INTO audit_log (ts, username, action, target, detail, outcome) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(new Date().toISOString(), username || 'unknown', action, target || '', detail || null, outcome || 'ok');
+}
+
+function getAuditLogs({ limit = 200, offset = 0, username = '', action = '' } = {}) {
+  const params = [];
+  let where = '1=1';
+  if (username) { where += ' AND username = ?'; params.push(username); }
+  if (action)   { where += ' AND action LIKE ?'; params.push(action + '%'); }
+  const total = _db.prepare(`SELECT COUNT(*) as c FROM audit_log WHERE ${where}`).get(...params).c;
+  const logs  = _db.prepare(
+    `SELECT id, ts, username, action, target, detail, outcome FROM audit_log WHERE ${where} ORDER BY ts DESC LIMIT ? OFFSET ?`
+  ).all(...params, limit, offset);
+  return { total, logs };
+}
+
 function getPages() {
   return _db.prepare('SELECT * FROM pages ORDER BY sort_order').all();
 }
@@ -302,4 +371,4 @@ function getTokenGeneration() {
   return _db.prepare('SELECT value FROM meta WHERE key = ?').get('token_generation')?.value || '1';
 }
 
-module.exports = { initDb, getDb, getUser, getAllUsers, createUser, updatePassword, setMustChangePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages, getTokenGeneration, DEFAULT_READ_PAGES, PAGES };
+module.exports = { initDb, getDb, getUser, getAllUsers, createUser, updatePassword, setMustChangePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages, getTokenGeneration, upsertInventoryMac, getAllInventory, addAuditLog, getAuditLogs, DEFAULT_READ_PAGES, PAGES };
