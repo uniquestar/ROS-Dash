@@ -13,8 +13,7 @@ const fs = require('fs');
 const path = require('path');
 
 // Persistent cache location (outside container, mounted as volume)
-const CACHE_DIR = path.join(process.cwd(), 'data');
-const CACHE_FILE = path.join(CACHE_DIR, 'oui-cache.json');
+const CACHE_FILE = path.join(process.cwd(), 'oui-cache.json');
 
 let _cache = {};
 let _pendingFetches = new Set();
@@ -24,9 +23,6 @@ let _pendingFetches = new Set();
  */
 function initOuiCache() {
   try {
-    if (!fs.existsSync(CACHE_DIR)) {
-      fs.mkdirSync(CACHE_DIR, { recursive: true });
-    }
     if (fs.existsSync(CACHE_FILE)) {
       const data = fs.readFileSync(CACHE_FILE, 'utf-8');
       _cache = JSON.parse(data);
@@ -43,9 +39,6 @@ function initOuiCache() {
  */
 function saveCacheToDisk() {
   try {
-    if (!fs.existsSync(CACHE_DIR)) {
-      fs.mkdirSync(CACHE_DIR, { recursive: true });
-    }
     fs.writeFile(CACHE_FILE, JSON.stringify(_cache, null, 2), (err) => {
       if (err) console.warn(`[OUI] Failed to save cache:`, err.message);
     });

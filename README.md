@@ -172,11 +172,13 @@ docker run -d \
   --env-file /path/to/.env \
   --mount type=bind,source=/path/to/ros-dash.db,target=/app/ros-dash.db \
   --mount type=bind,source=/path/to/switches.json,target=/app/switches.json \
+  --mount type=bind,source=/path/to/oui-cache.json,target=/app/oui-cache.json \
   --restart unless-stopped \
   ros-dash
 ```
 
 Set `DB_PATH=/app/ros-dash.db` in your `.env` to ensure the database is written to the mounted path.
+Create `/path/to/oui-cache.json` once on the host so OUI vendor lookups persist across container rebuilds.
 
 - Dashboard: `http://your-server:3081`
 - Health check: `http://your-server:3081/healthz`
@@ -195,6 +197,7 @@ docker run -d \
   --env-file /path/to/.env \
   --mount type=bind,source=/path/to/ros-dash.db,target=/app/ros-dash.db \
   --mount type=bind,source=/path/to/switches.json,target=/app/switches.json \
+  --mount type=bind,source=/path/to/oui-cache.json,target=/app/oui-cache.json \
   --restart unless-stopped \
   ros-dash
 ```
@@ -208,11 +211,11 @@ For automated deployment on the server, maintain a build script at a path outsid
 3. Copy `.env` and `switches.json` into the repo directory
 4. Build the Docker image
 5. Stop and remove the old container
-6. Start the new container with bind mounts for `ros-dash.db` and `switches.json`
+6. Start the new container with bind mounts for `ros-dash.db`, `switches.json`, and `oui-cache.json`
 7. Verify the database has users after startup
 
 Key points:
-- Never store `.env`, `switches.json`, or `ros-dash.db` in the repo
+- Never store `.env`, `switches.json`, `ros-dash.db`, or `oui-cache.json` in the repo
 - Always mount `ros-dash.db` as a bind mount — never bake it into the image
 - The WAL checkpoint before stop is critical for user data persistence
 
