@@ -90,15 +90,17 @@ The Switches page includes a graphical port layout mirroring the physical switch
 
 ### Client Inventory
 - Inventory data is built by correlating DHCP leases, ARP entries, and cached switch MAC table observations
+- Adds vendor enrichment via OUI lookup with persistent host-mounted cache (`/app/oui-cache.json`)
 - Tracks first seen and last seen timestamps per MAC address
 - Shows online devices plus historical offline devices observed previously
 - Includes per-device switch, port, VLAN, status, hostname, and IP when available
+- Supports inline editing of inventory notes/tags per device
 - Supports quick filtering by hostname, MAC, IP, switch, and online state
 
 ### Audit Log
 - All state-changing operations are logged with timestamp, user, action, target, detail, and outcome
 - Covers DHCP reserve/release, WireGuard mutations, switch write actions, user management, and permission changes
-- Dedicated Audit Log page supports action/user filtering and incremental pagination
+- Dedicated Audit Log page supports action/user/date filtering and incremental pagination
 
 ---
 
