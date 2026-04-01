@@ -15,7 +15,7 @@ const { z } = require('zod');
 const { RouterOsInputError, sanitizeRosId, sanitizePeerName, sanitizeAddressListName } = require('./util/routerosSanitize');
 const { getErrorMessage } = require('./util/errors');
 const { validatePassword } = require('./util/passwordPolicy');
-const { lookupVendor } = require('./util/oui');
+const { initOuiCache, lookupVendor } = require('./util/oui');
 
 const ROS                  = require('./routeros/client');
 const { fetchInterfaces }  = require('./collectors/interfaces');
@@ -1074,6 +1074,7 @@ setInterval(() => {
 }, 15000);
 
 const PORT = parseInt(process.env.PORT || '3081', 10);
+initOuiCache();
 server.listen(PORT, () => console.log(`[ROS-Dash] v0.4.8 listening on http://0.0.0.0:${PORT}`));
 
 // Graceful shutdown — checkpoint WAL so data persists across restarts
