@@ -6,5 +6,5 @@ services:
     volumes:
       - /var/snap/docker/common/ros-dash/users.json:/app/users.json
       - /var/snap/docker/common/ros-dash/ros-dash.db:/app/ros-dash.db
-      - /var/snap/docker/common/ros-dash/oui-cache.json:/app/data/oui-cache.json
+      - /var/snap/docker/common/ros-dash/oui-cache.json:/app/oui-cache.json
     restart: unless-stopped
