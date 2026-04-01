@@ -123,7 +123,7 @@ function secureApiCall(url, options) {
 }
 
 // ── Page router ────────────────────────────────────────────────────────────
-var PAGE_TITLES = {dashboard:'Dashboard',connections:'Connections',wireless:'Wireless',interfaces:'Interfaces',dhcp:'DHCP',firewall:'Firewall',vpn:'VPN',logs:'Logs',users:'User Management'};
+var PAGE_TITLES = {dashboard:'Dashboard',connections:'Connections',wireless:'Wireless',interfaces:'Interfaces',dhcp:'DHCP',firewall:'Firewall',vpn:'VPN',switches:'Switches',routes:'Routes',addresslists:'Address Lists',logs:'Logs',users:'User Management'};
 var PAGE_KEYS   = ['dashboard','wireless','interfaces','dhcp','vpn','connections','firewall','logs','info','users'];
 function showPage(name){
   document.querySelectorAll('.page-view').forEach(function(p){p.classList.remove('active');});
