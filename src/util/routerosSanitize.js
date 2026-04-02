@@ -42,9 +42,18 @@ function sanitizeAddressListName(value, requiredPrefix) {
   return s;
 }
 
+function sanitizeInterfaceName(value) {
+  const s = ensureBaseSafe(value, 'interfaceName');
+  if (!/^[A-Za-z0-9 _./:-]{1,64}$/.test(s)) {
+    throw new RouterOsInputError('interfaceName contains unsupported characters');
+  }
+  return s;
+}
+
 module.exports = {
   RouterOsInputError,
   sanitizeRosId,
   sanitizePeerName,
   sanitizeAddressListName,
+  sanitizeInterfaceName,
 };

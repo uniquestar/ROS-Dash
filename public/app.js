@@ -47,6 +47,7 @@ var pageTitle        = $('pageTitle');
 var ifaceGrid        = $('ifaceGrid');
 var dhcpTable        = $('dhcpTable');
 var dhcpCanWrite     = false;
+var interfacesCanWrite = false;
 var switchCanWrite   = false;
 var switchAdminWrite = false;
 var dhcpTotalBadge   = $('dhcpTotalBadge');
@@ -567,16 +568,54 @@ socket.on('ifstatus:update',function(data){
   ifaceGrid.innerHTML=ifaces.map(function(i){
     var cls=i.disabled?'disabled':i.running?'up':'down';
     var dotCls=i.disabled?'dis':i.running?'up':'down';
-    var ipStr=i.ips&&i.ips.length?i.ips.join(' / '):'';
     var rateStr=(i.rxMbps||i.txMbps)?'\u2193 '+i.rxMbps+' \u2191 '+i.txMbps+' Mbps':'';
+    var actionBtn='';
+    if(interfacesCanWrite){
+      actionBtn=i.disabled
+        ?'<button class="btn btn-sm btn-outline-success" data-iface-action="enable" data-iface-name="'+esc(i.name)+'" style="margin-top:.45rem;padding:.2rem .45rem;font-size:.68rem">Enable</button>'
+        :'<button class="btn btn-sm btn-outline-danger" data-iface-action="disable" data-iface-name="'+esc(i.name)+'" style="margin-top:.45rem;padding:.2rem .45rem;font-size:.68rem">Disable</button>';
+    }
     return'<div class="iface-tile '+cls+'">'+
       '<div class="iface-name"><span class="iface-dot '+dotCls+'"></span>'+esc(i.name)+'</div>'+
       '<div class="iface-type">'+esc(i.type)+(i.comment?' \u00b7 '+esc(i.comment):'')+'</div>'+
       (i.ips&&i.ips.length?i.ips.map(function(ip){return'<div class="iface-ip">'+esc(ip)+'</div>';}).join(''):'')+
       (rateStr?'<div class="iface-rate">'+rateStr+'</div>':'')+
+      actionBtn+
       '</div>';
   }).join('');
 });
+
+if(ifaceGrid){
+  ifaceGrid.addEventListener('click', function(e){
+    var btn = e.target.closest('[data-iface-action]');
+    if(!btn || !interfacesCanWrite) return;
+    var ifaceName = btn.getAttribute('data-iface-name') || '';
+    var action = btn.getAttribute('data-iface-action') || '';
+    var enabled = action === 'enable';
+    if(!ifaceName) return;
+    if(!window.confirm((enabled ? 'Enable ' : 'Disable ') + ifaceName + '?')) return;
+    btn.disabled = true;
+    secureApiCall('/api/interfaces/admin', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ interfaceName: ifaceName, enabled: enabled })
+    })
+      .then(function(r){
+        return r.json().then(function(data){ return { ok: r.ok, data: data || {} }; });
+      })
+      .then(function(res){
+        if(!res.ok){
+          alert('Failed: ' + (res.data.error || 'unknown error'));
+          btn.disabled = false;
+        }
+      })
+      .catch(function(err){
+        alert('Request failed: ' + (err && err.message ? err.message : 'unknown error'));
+        btn.disabled = false;
+      });
+  });
+}
 
 // ── Wireless ───────────────────────────────────────────────────────────────
 // ── Wireless ───────────────────────────────────────────────────────────────
@@ -1903,6 +1942,7 @@ sendNotif = function(title, body, tag){
       var perms = me.permissions || {};
       if (window._onMeLoaded) window._onMeLoaded(me);
       dhcpCanWrite = !!(perms.dhcp && perms.dhcp.write);
+      interfacesCanWrite = !!(perms.interfaces && perms.interfaces.write);
       switchCanWrite = !!(perms.switches && perms.switches.write);
       switchAdminWrite = !!(perms.switchadmin && perms.switchadmin.write);
       var cogBtn = document.getElementById('swPermsCogBtn');
