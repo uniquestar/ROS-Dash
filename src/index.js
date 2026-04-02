@@ -12,7 +12,7 @@ const express = require('express');
 const http    = require('http');
 const { Server } = require('socket.io');
 const { z } = require('zod');
-const { RouterOsInputError, sanitizeRosId, sanitizePeerName, sanitizeAddressListName } = require('./util/routerosSanitize');
+const { RouterOsInputError, sanitizeRosId, sanitizePeerName, sanitizeAddressListName, sanitizeInterfaceName } = require('./util/routerosSanitize');
 const { getErrorMessage } = require('./util/errors');
 const { validatePassword } = require('./util/passwordPolicy');
 const { initOuiCache, lookupVendor } = require('./util/oui');
@@ -154,6 +154,11 @@ const switchPortAdminSchema = z.object({
   enabled: z.boolean(),
 });
 
+const interfaceAdminSchema = z.object({
+  interfaceName: z.string().min(1, 'Interface name is required').max(64, 'Interface name too long'),
+  enabled: z.boolean(),
+});
+
 const switchPermSchema = z.object({
   username:   z.string().min(1, 'Username is required'),
   switchName: z.string().min(1, 'Switch name is required'),
@@ -232,6 +237,31 @@ app.post('/api/dhcp/remove-static', csrfProtection, requireAuth, requirePageWrit
     }
     const msg = getErrorMessage(e);
     console.error('[dhcp] remove-static failed:', msg);
+    res.status(500).json({ error: msg });
+  }
+});
+
+// Enable/disable interface
+app.post('/api/interfaces/admin', csrfProtection, requireAuth, requirePageWrite('interfaces'), async (req, res) => {
+  try {
+    const { interfaceName, enabled } = interfaceAdminSchema.parse(req.body);
+    const safeInterfaceName = sanitizeInterfaceName(interfaceName);
+    await ros.write('/interface/set', [
+      '=numbers=' + safeInterfaceName,
+      '=disabled=' + (enabled ? 'no' : 'yes'),
+    ]);
+    auditLog(req, enabled ? 'interfaces.enable' : 'interfaces.disable', safeInterfaceName, null, 'ok');
+    res.json({ ok: true });
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      return res.status(400).json({ error: e.errors[0].message });
+    }
+    if (e instanceof RouterOsInputError) {
+      return res.status(400).json({ error: e.message });
+    }
+    const msg = getErrorMessage(e);
+    console.error('[interfaces] admin action failed:', msg);
+    auditLog(req, 'interfaces.admin', req.body && req.body.interfaceName, msg, 'error');
     res.status(500).json({ error: msg });
   }
 });
