@@ -1054,14 +1054,14 @@
           <div class="data-scroll" style="max-height:calc(100vh - 205px);overflow-y:auto">
             <table class="table table-vcenter mb-0" style="table-layout:fixed;width:100%">
               <colgroup>
-                <col style="width:12%"><col style="width:12%"><col style="width:10%">
-                <col style="width:11%"><col style="width:9%"><col style="width:5%">
-                <col style="width:9%"><col style="width:10%"><col style="width:10%"><col style="width:7%"><col style="width:5%">
+                <col style="width:11%"><col style="width:12%"><col style="width:10%">
+                <col style="width:10%"><col style="width:9%"><col style="width:6%">
+                <col style="width:13%"><col style="width:7%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:5%">
               </colgroup>
               <thead style="position:sticky;top:0;background:var(--bg-card)">
-                <tr><th>MAC</th><th>Hostname</th><th>Vendor</th><th>IP</th><th>Switch</th><th>Port</th><th>Status</th><th>First Seen</th><th>Last Seen</th><th>Notes</th><th></th></tr>
+                <tr><th>MAC</th><th>Hostname</th><th>Vendor</th><th>IP</th><th>Switch</th><th>Port</th><th>Discovery</th><th>Status</th><th>First Seen</th><th>Last Seen</th><th>Notes</th><th></th></tr>
               </thead>
-              <tbody id="inventoryTable"><tr><td colspan="11" class="empty-state">Load the page to populate inventory…</td></tr></tbody>
+              <tbody id="inventoryTable"><tr><td colspan="12" class="empty-state">Load the page to populate inventory…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -1152,6 +1152,8 @@
             <select id="auditLogAction" class="form-select form-select-sm" style="width:160px">
               <option value="">All actions</option>
               <option value="dhcp">DHCP</option>
+              <option value="interfaces">Interfaces</option>
+              <option value="inventory">Inventory</option>
               <option value="switch">Switch</option>
               <option value="user">User</option>
               <option value="perm">Permissions</option>
@@ -1160,6 +1162,7 @@
             </select>
             <input id="auditLogFromDate" type="date" class="form-control form-control-sm" style="width:140px" title="From date">
             <input id="auditLogToDate" type="date" class="form-control form-control-sm" style="width:140px" title="To date">
+            <button id="auditLogExport" class="btn btn-sm btn-outline-secondary">Export CSV</button>
             <button id="auditLogRefresh" class="btn btn-sm btn-outline-secondary">Refresh</button>
             <span id="auditLogBadge" class="badge bg-blue" style="font-family:var(--font-mono);font-size:.68rem">0</span>
           </div>

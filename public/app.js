@@ -3235,13 +3235,13 @@ function renderVisualiser(switchName, module) {
           if (sf === 'online'  && !d.online) return false;
           if (sf === 'offline' &&  d.online) return false;
           if (!f) return true;
-          var hay = [d.mac, d.hostname, d.ip, d.switch||'', d.switchPort||'', String(d.vlan||'')].join(' ').toLowerCase();
+          var hay = [d.mac, d.hostname, d.ip, d.switch||'', d.switchPort||'', String(d.vlan||''), d.discoveryName||'', d.discoveryInterface||'', d.discoveryVersion||''].join(' ').toLowerCase();
           return hay.indexOf(f) !== -1;
         });
         if (badge) badge.textContent = filtered.length;
         if (nb)    nb.textContent    = devices.filter(function(d){ return d.online; }).length || '';
         if (!filtered.length) {
-          tbody.innerHTML = '<tr><td colspan="11" class="empty-state">No devices'+(f||sf?' matching filter':'')+'&#8230;</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="12" class="empty-state">No devices'+(f||sf?' matching filter':'')+'&#8230;</td></tr>';
           return;
         }
         tbody.innerHTML = filtered.map(function(d) {
@@ -3249,6 +3249,13 @@ function renderVisualiser(switchName, module) {
             ? (d.status==='bound'||d.status==='static'?'color:var(--accent-ok)':'color:var(--accent-warn)')
             : 'color:var(--text-muted)';
           var dot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+(d.online?'var(--accent-ok)':'rgba(148,163,190,.3)')+';margin-right:4px;vertical-align:middle"></span>';
+          var discovery = d.discoveryName || d.discoveryInterface || d.discoveryVersion
+            ? '<div style="font-size:.72rem">'+esc(d.discoveryName || '—')+'</div>'+
+              '<div style="font-family:var(--font-mono);font-size:.63rem;color:var(--text-muted)">'+esc([d.discoveryInterface, d.discoveryVersion].filter(Boolean).join(' · ') || 'LLDP/CDP')+'</div>'
+            : '<span style="color:var(--text-muted)">—</span>';
+          var editButton = d.mac
+            ? '<button class="btn btn-xs btn-ghost" data-mac="'+esc(d.mac)+'" data-edit-inv style="padding:2px 6px;font-size:.65rem">Edit</button>'
+            : '<span style="color:var(--text-muted);font-size:.68rem">—</span>';
           return '<tr style="opacity:'+(d.online?'1':'.65')+'">'+
             '<td style="font-family:var(--font-mono);font-size:.68rem;color:var(--text-muted)">'+esc(d.mac)+'</td>'+
             '<td style="font-weight:600;font-size:.78rem">'+esc(d.hostname||'—')+'</td>'+
@@ -3256,11 +3263,12 @@ function renderVisualiser(switchName, module) {
             '<td style="font-family:var(--font-mono);font-size:.72rem;color:var(--accent-rx)">'+esc(d.ip||'—')+'</td>'+
             '<td style="font-size:.75rem;color:var(--text-muted)">'+esc(d.switch||'—')+'</td>'+
             '<td style="font-family:var(--font-mono);font-size:.72rem">'+esc(d.switchPort||'—')+'</td>'+
+            '<td style="font-size:.72rem;color:var(--text-muted)">'+discovery+'</td>'+
             '<td>'+dot+'<span style="font-size:.72rem;'+statusColor+'">'+esc(d.status||'offline')+'</span></td>'+
             '<td style="font-family:var(--font-mono);font-size:.67rem;color:var(--text-muted)">'+esc(fmtDate(d.firstSeen))+'</td>'+
             '<td style="font-family:var(--font-mono);font-size:.67rem;color:var(--text-muted)">'+esc(fmtDate(d.lastSeen))+'</td>'+
             '<td style="font-size:.72rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.notes||'')+'">'+esc((d.notes||'').substring(0,30)+(d.notes&&d.notes.length>30?'…':''))+'</td>'+
-            '<td style="text-align:center"><button class="btn btn-xs btn-ghost" data-mac="'+esc(d.mac)+'" data-edit-inv style="padding:2px 6px;font-size:.65rem">Edit</button></td>'+
+            '<td style="text-align:center">'+editButton+'</td>'+
             '</tr>';
         }).join('');
       }
@@ -3268,7 +3276,7 @@ function renderVisualiser(switchName, module) {
 
       window.loadInventory = function() {
         var tbody = $('inventoryTable');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-state" style="padding:1.5rem">Loading&#8230;</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="12" class="empty-state" style="padding:1.5rem">Loading&#8230;</td></tr>';
         fetch('/api/inventory', { credentials:'include' })
           .then(function(r){ return r.json(); })
           .then(function(data){
@@ -3277,7 +3285,7 @@ function renderVisualiser(switchName, module) {
           })
           .catch(function(){
             var tbody = $('inventoryTable');
-            if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-state" style="color:var(--accent-err)">Failed to load inventory</td></tr>';
+            if (tbody) tbody.innerHTML = '<tr><td colspan="12" class="empty-state" style="color:var(--accent-err)">Failed to load inventory</td></tr>';
           });
       };
 
@@ -3400,6 +3408,20 @@ function renderVisualiser(switchName, module) {
         if (btn) btn.style.display = (_auditRows.length < _auditTotal) ? 'inline-block' : 'none';
       }
 
+      function buildAuditLogExportUrl() {
+        var user = ($('auditLogUser') || { value:'' }).value.trim();
+        var action = ($('auditLogAction') || { value:'' }).value;
+        var fromDate = ($('auditLogFromDate') || { value:'' }).value;
+        var toDate = ($('auditLogToDate') || { value:'' }).value;
+        var url = '/api/audit-log/export.csv';
+        var params = [];
+        if (user) params.push('username=' + encodeURIComponent(user));
+        if (action) params.push('action=' + encodeURIComponent(action));
+        if (fromDate) params.push('fromDate=' + encodeURIComponent(fromDate));
+        if (toDate) params.push('toDate=' + encodeURIComponent(toDate));
+        return params.length ? (url + '?' + params.join('&')) : url;
+      }
+
       window.loadAuditLog = function(reset) {
         if (reset) { _auditOffset = 0; _auditRows = [];
           var tbody = $('auditLogTable');
@@ -3429,6 +3451,14 @@ function renderVisualiser(switchName, module) {
       };
 
       var rb  = $('auditLogRefresh');   if (rb)  rb.addEventListener('click', function(){ window.loadAuditLog(true); });
+      var eb  = $('auditLogExport');    if (eb)  eb.addEventListener('click', function(){
+        var link = document.createElement('a');
+        link.href = buildAuditLogExportUrl();
+        link.rel = 'noopener';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      });
       var lm  = $('auditLogLoadMore');  if (lm)  lm.addEventListener('click', function(){ window.loadAuditLog(false); });
       var userInput = $('auditLogUser');
       var fromInput = $('auditLogFromDate');
