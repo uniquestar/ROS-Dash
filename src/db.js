@@ -352,18 +352,52 @@ function addAuditLog({ username, action, target, detail, outcome }) {
   ).run(new Date().toISOString(), username || 'unknown', action, target || '', detail || null, outcome || 'ok');
 }
 
-function getAuditLogs({ limit = 200, offset = 0, username = '', action = '', fromDate = '', toDate = '' } = {}) {
+function buildAuditLogFilter({ username = '', action = '', fromDate = '', toDate = '' } = {}) {
   const params = [];
   let where = '1=1';
   if (username) { where += ' AND username = ?'; params.push(username); }
   if (action)   { where += ' AND action LIKE ?'; params.push(action + '%'); }
   if (fromDate) { where += ' AND DATE(ts) >= ?'; params.push(fromDate); }
   if (toDate)   { where += ' AND DATE(ts) <= ?'; params.push(toDate); }
+  return { where, params };
+}
+
+function getAuditLogs({ limit = 200, offset = 0, username = '', action = '', fromDate = '', toDate = '' } = {}) {
+  const { where, params } = buildAuditLogFilter({ username, action, fromDate, toDate });
   const total = _db.prepare(`SELECT COUNT(*) as c FROM audit_log WHERE ${where}`).get(...params).c;
   const logs  = _db.prepare(
     `SELECT id, ts, username, action, target, detail, outcome FROM audit_log WHERE ${where} ORDER BY ts DESC LIMIT ? OFFSET ?`
   ).all(...params, limit, offset);
   return { total, logs };
+}
+
+function getAuditLogRows({ username = '', action = '', fromDate = '', toDate = '' } = {}) {
+  const { where, params } = buildAuditLogFilter({ username, action, fromDate, toDate });
+  return _db.prepare(
+    `SELECT id, ts, username, action, target, detail, outcome FROM audit_log WHERE ${where} ORDER BY ts DESC`
+  ).all(...params);
+}
+
+function cleanupAuditLogs({ maxAgeDays = 0, maxRows = 0 } = {}) {
+  let deleted = 0;
+
+  if (Number.isInteger(maxAgeDays) && maxAgeDays > 0) {
+    const cutoff = new Date(Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000)).toISOString();
+    const info = _db.prepare('DELETE FROM audit_log WHERE ts < ?').run(cutoff);
+    deleted += info.changes || 0;
+  }
+
+  if (Number.isInteger(maxRows) && maxRows > 0) {
+    const total = _db.prepare('SELECT COUNT(*) as c FROM audit_log').get().c;
+    if (total > maxRows) {
+      const info = _db.prepare(
+        'DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log ORDER BY ts DESC LIMIT -1 OFFSET ?)'
+      ).run(maxRows);
+      deleted += info.changes || 0;
+    }
+  }
+
+  return deleted;
 }
 
 function getPages() {
@@ -377,4 +411,4 @@ function getTokenGeneration() {
   return _db.prepare('SELECT value FROM meta WHERE key = ?').get('token_generation')?.value || '1';
 }
 
-module.exports = { initDb, getDb, getUser, getAllUsers, createUser, updatePassword, setMustChangePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages, getTokenGeneration, upsertInventoryMac, getAllInventory, updateInventoryNotes, addAuditLog, getAuditLogs, DEFAULT_READ_PAGES, PAGES };
+module.exports = { initDb, getDb, getUser, getAllUsers, createUser, updatePassword, setMustChangePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages, getTokenGeneration, upsertInventoryMac, getAllInventory, updateInventoryNotes, addAuditLog, getAuditLogs, getAuditLogRows, cleanupAuditLogs, DEFAULT_READ_PAGES, PAGES };

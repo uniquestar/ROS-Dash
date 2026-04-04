@@ -8,6 +8,7 @@ class NeighborsCollector extends BaseCollector {
   constructor({ ros, io, pollMs, state }) {
     super({ name: 'neighbors', ros, pollMs: pollMs || 60000, state });
     this.io = io;
+    this._lastNeighbors = [];
   }
 
   _cleanVersion(ver) {
@@ -28,8 +29,13 @@ class NeighborsCollector extends BaseCollector {
       identity:  n.identity   || '',
       version:   this._cleanVersion(n.version || ''),
     }));
+    this._lastNeighbors = neighbors;
     this.io.emit('neighbors:update', { ts: Date.now(), neighbors });
     this.state.lastNeighborsTs = Date.now();
+  }
+
+  getLastNeighbors() {
+    return this._lastNeighbors.slice();
   }
 }
 

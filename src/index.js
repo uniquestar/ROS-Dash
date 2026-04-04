@@ -64,6 +64,9 @@ const WG_SERVER_LISTEN_PORT = parseInt(process.env.WG_SERVER_LISTEN_PORT || '132
 const WG_CLIENT_DNS = process.env.WG_CLIENT_DNS || '192.168.168.1';
 const WG_ALLOWED_SUBNET = process.env.WG_ALLOWED_SUBNET || '192.168.168.0/24';
 const WG_CLIENT_PREFIX = parseInt(process.env.WG_CLIENT_PREFIX || '24', 10);
+const AUDIT_RETENTION_DAYS = Math.max(0, parseInt(process.env.AUDIT_RETENTION_DAYS || '0', 10) || 0);
+const AUDIT_RETENTION_MAX_ROWS = Math.max(0, parseInt(process.env.AUDIT_RETENTION_MAX_ROWS || '0', 10) || 0);
+const AUDIT_RETENTION_CLEANUP_MS = Math.max(60000, parseInt(process.env.AUDIT_RETENTION_CLEANUP_MS || '21600000', 10) || 21600000);
 
 function buildWgAllowedAddressRegex(cidr) {
   const m = String(cidr || '').match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.0\/24$/);
@@ -662,7 +665,7 @@ app.get('/logout', (_req, res) => {
 
 // User management API
 const crypto_users = require('crypto');
-const { getAllUsers, getUser, createUser, updatePassword, setMustChangePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages, upsertInventoryMac, getAllInventory, updateInventoryNotes, addAuditLog, getAuditLogs } = require('./db');
+const { getAllUsers, getUser, createUser, updatePassword, setMustChangePassword, deleteUser, getUserPermissions, setPermission, getUserSwitchWrite, getAllSwitchPermissions, setSwitchPermission, getPages, upsertInventoryMac, getAllInventory, updateInventoryNotes, addAuditLog, getAuditLogs, getAuditLogRows, cleanupAuditLogs } = require('./db');
 
 function hashPassword(password) {
   const salt = crypto_users.randomBytes(16).toString('hex');
@@ -675,6 +678,42 @@ function auditLog(req, action, target, detail, outcome) {
     const u = getTokenUser(req);
     addAuditLog({ username: u ? u.username : 'unknown', action, target: target || '', detail: detail || null, outcome: outcome || 'ok' });
   } catch (_) {}
+}
+
+function csvEscape(value) {
+  const s = String(value == null ? '' : value);
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+
+function buildAuditCsv(rows) {
+  const header = ['timestamp', 'username', 'action', 'target', 'detail', 'outcome'];
+  const lines = [header.map(csvEscape).join(',')];
+  for (const row of rows) {
+    lines.push([
+      row.ts,
+      row.username,
+      row.action,
+      row.target,
+      row.detail,
+      row.outcome,
+    ].map(csvEscape).join(','));
+  }
+  return lines.join('\n') + '\n';
+}
+
+function runAuditRetentionCleanup(reason) {
+  if (!AUDIT_RETENTION_DAYS && !AUDIT_RETENTION_MAX_ROWS) return;
+  try {
+    const deleted = cleanupAuditLogs({
+      maxAgeDays: AUDIT_RETENTION_DAYS,
+      maxRows: AUDIT_RETENTION_MAX_ROWS,
+    });
+    if (deleted > 0) {
+      console.log(`[audit] retention cleanup (${reason}) removed ${deleted} row(s)`);
+    }
+  } catch (e) {
+    console.error('[audit] retention cleanup failed:', getErrorMessage(e));
+  }
 }
 
 // List all users — requires users:read
@@ -809,12 +848,15 @@ app.get('/api/inventory', requireAuth, requirePageRead('inventory'), (req, res) 
   try {
     const now = new Date().toISOString();
     const seen = new Map();
+    const seenByIp = new Map();
 
     // From DHCP leases
     for (const [ip, v] of dhcpLeases.byIP.entries()) {
       if (!v.mac) continue;
       const mac = v.mac.toLowerCase();
-      seen.set(mac, { mac, ip, hostname: v.hostName || v.name || '', status: v.status || '', leaseType: v.type || '' });
+      const entry = { mac, ip, hostname: v.hostName || v.name || '', status: v.status || '', leaseType: v.type || '' };
+      seen.set(mac, entry);
+      if (ip) seenByIp.set(ip, entry);
     }
 
     // From ARP (IPs not resolved via DHCP)
@@ -822,7 +864,9 @@ app.get('/api/inventory', requireAuth, requirePageRead('inventory'), (req, res) 
       if (!v.mac) continue;
       const mac = v.mac.toLowerCase();
       if (!seen.has(mac)) {
-        seen.set(mac, { mac, ip, hostname: '', status: 'arp-only', leaseType: '' });
+        const entry = { mac, ip, hostname: '', status: 'arp-only', leaseType: '' };
+        seen.set(mac, entry);
+        if (ip) seenByIp.set(ip, entry);
       }
     }
 
@@ -836,11 +880,39 @@ app.get('/api/inventory', requireAuth, requirePageRead('inventory'), (req, res) 
       entry.vlan = port.vlan;
       if (!entry.hostname && port.name) entry.hostname = port.name;
       if (!seen.has(mac)) seen.set(mac, entry);
+      if (entry.ip) seenByIp.set(entry.ip, entry);
+    }
+
+    // From LLDP/CDP neighbors seen by the router — enrich hostnames and direct links where available
+    for (const neighbor of neighbors.getLastNeighbors()) {
+      const mac = neighbor.mac ? neighbor.mac.toLowerCase() : '';
+      const key = mac || (neighbor.address ? 'neighbor:' + neighbor.address : '');
+      if (!key) continue;
+      let entry = mac ? seen.get(mac) : null;
+      if (!entry && neighbor.address) entry = seenByIp.get(neighbor.address) || null;
+      if (!entry) {
+        entry = {
+          mac,
+          ip: neighbor.address || '',
+          hostname: '',
+          status: 'neighbor',
+          leaseType: '',
+        };
+        seen.set(key, entry);
+      }
+      if (!entry.mac && mac) entry.mac = mac;
+      if (!entry.ip && neighbor.address) entry.ip = neighbor.address;
+      if (!entry.hostname && neighbor.identity) entry.hostname = neighbor.identity;
+      entry.discoverySource = 'LLDP/CDP';
+      entry.discoveryName = neighbor.identity || entry.discoveryName || '';
+      entry.discoveryInterface = neighbor.interface || entry.discoveryInterface || '';
+      entry.discoveryVersion = neighbor.version || entry.discoveryVersion || '';
+      if (entry.ip) seenByIp.set(entry.ip, entry);
     }
 
     // Update last_seen for all currently visible MACs
-    for (const mac of seen.keys()) {
-      upsertInventoryMac(mac, now);
+    for (const [mac, entry] of seen.entries()) {
+      if (entry.mac && entry.mac.indexOf(':') !== -1) upsertInventoryMac(entry.mac, now);
     }
 
     const dbRecords = getAllInventory();
@@ -848,9 +920,9 @@ app.get('/api/inventory', requireAuth, requirePageRead('inventory'), (req, res) 
     const devices = [];
 
     // Currently visible devices
-    for (const [mac, entry] of seen.entries()) {
-      const db = dbMap.get(mac) || {};
-      devices.push({ ...entry, vendor: lookupVendor(mac), firstSeen: db.first_seen || now, lastSeen: db.last_seen || now, notes: db.notes || '', tags: db.tags || '', online: true });
+    for (const [, entry] of seen.entries()) {
+      const db = entry.mac ? (dbMap.get(entry.mac) || {}) : {};
+      devices.push({ ...entry, vendor: entry.mac ? lookupVendor(entry.mac) : null, firstSeen: db.first_seen || now, lastSeen: db.last_seen || now, notes: db.notes || '', tags: db.tags || '', online: true });
     }
 
     // Historical devices no longer visible
@@ -877,6 +949,22 @@ app.get('/api/audit-log', requireAuth, requirePageRead('auditlog'), (req, res) =
     const toDate   = String(req.query.toDate   || '').trim();
     const result   = getAuditLogs({ limit, offset, username, action, fromDate, toDate });
     res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: getErrorMessage(e) });
+  }
+});
+
+app.get('/api/audit-log/export.csv', requireAuth, requirePageRead('auditlog'), (req, res) => {
+  try {
+    const username = String(req.query.username || '').trim();
+    const action   = String(req.query.action   || '').trim();
+    const fromDate = String(req.query.fromDate || '').trim();
+    const toDate   = String(req.query.toDate   || '').trim();
+    const rows = getAuditLogRows({ username, action, fromDate, toDate });
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="audit-log-${stamp}.csv"`);
+    res.send(buildAuditCsv(rows));
   } catch (e) {
     res.status(500).json({ error: getErrorMessage(e) });
   }
@@ -1017,6 +1105,8 @@ ros.on('error', (err) => {
   // Errors are logged inside connectLoop — suppress uncaught crash
 });
 ros.connectLoop();
+runAuditRetentionCleanup('startup');
+setInterval(() => runAuditRetentionCleanup('interval'), AUDIT_RETENTION_CLEANUP_MS);
 
 (async () => {
   try {

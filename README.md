@@ -2,7 +2,6 @@
 ### A MikroTik RouterOS v7 Live Dashboard
 
 > Real-time MikroTik RouterOS v7 dashboard — streaming binary API, Socket.IO, Docker-ready.
-
 ROS-Dash connects directly to the RouterOS API over a persistent binary TCP connection, streaming live data to the browser via Socket.IO. No page refreshes. No agents. Built-in authentication, granular per-user permissions, and Cisco switch integration with a graphical port visualiser.
 
 Collector lifecycle logic is standardized through a shared base implementation in [src/collectors/BaseCollector.js](src/collectors/BaseCollector.js), now used across all collector modules to reduce duplicate timer/reconnect/error code.
@@ -25,6 +24,7 @@ Forked and significantly enhanced from [MikroDash](https://github.com/SecOps-7/M
 - **WireGuard card** — active peer list with accurate connection status (peers with no handshake in 5 minutes shown as idle)
 
 ### Pages
+
 | Page | Description |
 |---|---|
 | Interfaces | All interfaces as compact tiles with status, IP(s), live rates, and cumulative RX/TX totals |
@@ -32,10 +32,10 @@ Forked and significantly enhanced from [MikroDash](https://github.com/SecOps-7/M
 | VPN | All WireGuard peers (active + idle) as tiles sorted active-first, with allowed IPs, endpoint, handshake, and traffic counters |
 | Connections | World map with animated arcs to destination countries, per-country protocol breakdown, top ports panel, and click-through connection detail modal |
 | Switches | Graphical port visualiser and port allocation table — populated via SNMP from Cisco Catalyst switches, with optional per-switch write controls |
-| Inventory | Canonical client inventory aggregated from DHCP leases, ARP, and switch MAC tables, with search and online/offline filtering |
+| Inventory | Canonical client inventory aggregated from DHCP leases, ARP, switch MAC tables, and router LLDP/CDP neighbors, with search and online/offline filtering |
 | Routes | Active routing table with flags, destination, gateway, distance, and type |
 | Address Lists | Firewall address lists grouped by list name with address, comment, and creation date |
-| Audit Log | Paginated write-action history with timestamp, user, action, target, detail, and outcome filters |
+| Audit Log | Paginated write-action history with timestamp, user, action, target, detail, and outcome filters, plus CSV export |
 | Firewall | Top hits, Filter, NAT, and Mangle rule tables with packet counts |
 | Logs | Live router log stream with severity filter and text search |
 | Users | User management — add, delete, change passwords, and configure per-page permissions |
@@ -89,18 +89,19 @@ The Switches page includes a graphical port layout mirroring the physical switch
   - 100% ping loss to configured target
 
 ### Client Inventory
-- Inventory data is built by correlating DHCP leases, ARP entries, and cached switch MAC table observations
+- Inventory data is built by correlating DHCP leases, ARP entries, cached switch MAC table observations, and router LLDP/CDP neighbors
 - Adds vendor enrichment via OUI lookup with persistent host-mounted cache (`/app/oui-cache.json`)
 - Tracks first seen and last seen timestamps per MAC address
 - Shows online devices plus historical offline devices observed previously
-- Includes per-device switch, port, VLAN, status, hostname, and IP when available
+- Includes per-device switch, port, VLAN, status, hostname, IP, and LLDP/CDP discovery details when available
 - Supports inline editing of inventory notes/tags per device
 - Supports quick filtering by hostname, MAC, IP, switch, and online state
 
 ### Audit Log
 - All state-changing operations are logged with timestamp, user, action, target, detail, and outcome
 - Covers DHCP reserve/release, WireGuard mutations, switch write actions, user management, and permission changes
-- Dedicated Audit Log page supports action/user/date filtering and incremental pagination
+- Dedicated Audit Log page supports action/user/date filtering, incremental pagination, and CSV export
+- Optional retention cleanup can trim old rows by age and/or maximum row count using environment settings
 
 ---
 
@@ -155,6 +156,9 @@ vim .env
 - `SWITCH_POLL_MS` — switch poll cadence in milliseconds (default `30000`)
 - `SWITCH_MAX_PER_TICK` — max switches polled per cycle (default `2`)
 - `SWITCH_POLL_TIMEOUT_MS` — per-switch timeout before backoff (default `15000`)
+- `AUDIT_RETENTION_DAYS` — delete audit rows older than this many days; `0` disables age-based cleanup
+- `AUDIT_RETENTION_MAX_ROWS` — keep at most this many audit rows after cleanup; `0` disables row-count cleanup
+- `AUDIT_RETENTION_CLEANUP_MS` — cleanup interval in milliseconds (default `21600000`, every 6 hours)
 
 Create the database and your first admin user:
 ```bash
@@ -181,6 +185,7 @@ docker run -d \
 
 Set `DB_PATH=/app/ros-dash.db` in your `.env` to ensure the database is written to the mounted path.
 Create `/path/to/oui-cache.json` once on the host so OUI vendor lookups persist across container rebuilds.
+Use the audit retention settings in `.env` if you want the server to trim old audit rows automatically.
 
 - Dashboard: `http://your-server:3081`
 - Health check: `http://your-server:3081/healthz`
