@@ -53,6 +53,7 @@ Forked and significantly enhanced from [MikroDash](https://github.com/SecOps-7/M
 - **Viewer users** — dashboard and about access by default; additional pages granted by admin
 - **Protected WebSocket** — unauthenticated socket connections rejected server-side
 - **CLI user management** — `src/add-user.js` for emergency access without the web UI
+- **In-page confirmation/notice dialogs** — write actions now use app-themed modal prompts instead of browser-native dialogs
 
 ### Cisco Switch Integration
 ROS-Dash polls Cisco Catalyst switches via SNMPv2c to build a complete port map, cross-referenced with DHCP leases and ARP tables for hostname and IP resolution.

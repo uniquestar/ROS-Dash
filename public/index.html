@@ -1400,6 +1400,21 @@
   </div>
 </div>
 
+<!-- App dialog modal (replaces native confirm/alert) -->
+<div id="appDialogModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:2100;align-items:center;justify-content:center">
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;width:100%;max-width:430px;padding:1rem 1rem .9rem 1rem;box-shadow:0 12px 30px rgba(0,0,0,.35)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.7rem">
+      <h4 id="appDialogTitle" style="margin:0;color:var(--text-main);font-size:1rem">Confirm</h4>
+      <button id="appDialogClose" style="background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer;line-height:1">✕</button>
+    </div>
+    <div id="appDialogBody" style="font-size:.85rem;color:var(--text-muted);line-height:1.45;margin-bottom:1rem"></div>
+    <div style="display:flex;justify-content:flex-end;gap:.5rem">
+      <button id="appDialogCancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
+      <button id="appDialogSubmit" class="btn btn-sm btn-primary">OK</button>
+    </div>
+  </div>
+</div>
+
 <!-- Country connections modal -->
 <div id="countryModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:2000;align-items:center;justify-content:center">
   <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;width:100%;max-width:680px;max-height:80vh;display:flex;flex-direction:column;margin:1rem">

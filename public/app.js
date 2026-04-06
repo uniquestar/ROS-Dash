@@ -54,6 +54,84 @@ var dhcpTotalBadge   = $('dhcpTotalBadge');
 var dhcpNavBadge     = $('dhcpNavBadge');
 var dhcpSearch       = $('dhcpSearch');
 
+// ── App Dialog (custom alert/confirm) ─────────────────────────────────────
+var appDialogModal  = $('appDialogModal');
+var appDialogTitle  = $('appDialogTitle');
+var appDialogBody   = $('appDialogBody');
+var appDialogClose  = $('appDialogClose');
+var appDialogCancel = $('appDialogCancel');
+var appDialogSubmit = $('appDialogSubmit');
+var _appDialogResolve = null;
+
+function closeAppDialog(result) {
+  if (appDialogModal) appDialogModal.style.display = 'none';
+  var done = _appDialogResolve;
+  _appDialogResolve = null;
+  if (done) done(!!result);
+}
+
+function openAppDialog(opts) {
+  opts = opts || {};
+  if (!appDialogModal) {
+    if (opts.showCancel) return Promise.resolve(window.confirm(String(opts.body || 'Confirm?')));
+    window.alert(String(opts.body || ''));
+    return Promise.resolve(true);
+  }
+  if (_appDialogResolve) closeAppDialog(false);
+  var title = String(opts.title || 'Confirm');
+  var body = String(opts.body || '');
+  var okText = String(opts.okText || 'OK');
+  var cancelText = String(opts.cancelText || 'Cancel');
+  var showCancel = !!opts.showCancel;
+  if (appDialogTitle) appDialogTitle.textContent = title;
+  if (appDialogBody) appDialogBody.textContent = body;
+  if (appDialogSubmit) {
+    appDialogSubmit.textContent = okText;
+    appDialogSubmit.className = 'btn btn-sm ' + (opts.okClass || 'btn-primary');
+  }
+  if (appDialogCancel) {
+    appDialogCancel.textContent = cancelText;
+    appDialogCancel.style.display = showCancel ? '' : 'none';
+  }
+  appDialogModal.style.display = 'flex';
+  return new Promise(function(resolve){ _appDialogResolve = resolve; });
+}
+
+function appConfirm(message, options) {
+  options = options || {};
+  return openAppDialog({
+    title: options.title || 'Confirm',
+    body: message,
+    okText: options.okText || 'Confirm',
+    okClass: options.okClass || 'btn-danger',
+    cancelText: options.cancelText || 'Cancel',
+    showCancel: true,
+  });
+}
+
+function appAlert(message, options) {
+  options = options || {};
+  return openAppDialog({
+    title: options.title || 'Notice',
+    body: message,
+    okText: options.okText || 'OK',
+    okClass: options.okClass || 'btn-primary',
+    showCancel: false,
+  });
+}
+
+if (appDialogClose) appDialogClose.addEventListener('click', function(){ closeAppDialog(false); });
+if (appDialogCancel) appDialogCancel.addEventListener('click', function(){ closeAppDialog(false); });
+if (appDialogSubmit) appDialogSubmit.addEventListener('click', function(){ closeAppDialog(true); });
+if (appDialogModal) {
+  appDialogModal.addEventListener('click', function(e){
+    if (e.target === appDialogModal) closeAppDialog(false);
+  });
+}
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape' && appDialogModal && appDialogModal.style.display === 'flex') closeAppDialog(false);
+});
+
 // ── State ──────────────────────────────────────────────────────────────────
 var autoScroll = true, logFilter = '', logLevel = '';
 var currentIf = '', windowSecs = 60;
@@ -593,27 +671,32 @@ if(ifaceGrid){
     var action = btn.getAttribute('data-iface-action') || '';
     var enabled = action === 'enable';
     if(!ifaceName) return;
-    if(!window.confirm((enabled ? 'Enable ' : 'Disable ') + ifaceName + '?')) return;
-    btn.disabled = true;
-    secureApiCall('/api/interfaces/admin', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ interfaceName: ifaceName, enabled: enabled })
-    })
-      .then(function(r){
-        return r.json().then(function(data){ return { ok: r.ok, data: data || {} }; });
-      })
-      .then(function(res){
-        if(!res.ok){
-          alert('Failed: ' + (res.data.error || 'unknown error'));
-          btn.disabled = false;
-        }
-      })
-      .catch(function(err){
-        alert('Request failed: ' + (err && err.message ? err.message : 'unknown error'));
-        btn.disabled = false;
-      });
+    appConfirm(
+      (enabled ? 'This will bring up ' : 'This will administratively disable ') + ifaceName + '. Continue?',
+      { title: (enabled ? 'Enable Interface' : 'Disable Interface'), okText: enabled ? 'Enable' : 'Disable', okClass: enabled ? 'btn-success' : 'btn-danger' }
+    ).then(function(confirmed){
+      if (!confirmed) return;
+        btn.disabled = true;
+        secureApiCall('/api/interfaces/admin', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ interfaceName: ifaceName, enabled: enabled })
+        })
+          .then(function(r){
+            return r.json().then(function(data){ return { ok: r.ok, data: data || {} }; });
+          })
+          .then(function(res){
+            if(!res.ok){
+              appAlert('Failed: ' + (res.data.error || 'unknown error'), { title: 'Interface Update Failed' });
+              btn.disabled = false;
+            }
+          })
+          .catch(function(err){
+            appAlert('Request failed: ' + (err && err.message ? err.message : 'unknown error'), { title: 'Interface Update Failed' });
+            btn.disabled = false;
+          });
+    });
   });
 }
 
@@ -2163,9 +2246,12 @@ sendNotif = function(title, body, tag){
 
   // Delete user
   window._delUser = function(username) {
-    if (!confirm('Delete user "'+username+'"? This cannot be undone.')) return;
-    secureApiCall('/api/users/'+username, { method: 'DELETE', credentials: 'include' })
-      .then(function(){ loadUsers(); });
+    appConfirm('Delete user "'+username+'"? This cannot be undone.', { title: 'Delete User', okText: 'Delete', okClass: 'btn-danger' })
+      .then(function(confirmed){
+        if (!confirmed) return;
+        secureApiCall('/api/users/'+username, { method: 'DELETE', credentials: 'include' })
+          .then(function(){ loadUsers(); });
+      });
   };
 
   function showForcedPasswordModal() {
@@ -3051,7 +3137,7 @@ function renderVisualiser(switchName, module) {
       } else {
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save';
-        alert('Error: ' + data.error);
+        appAlert('Error: ' + data.error, { title: 'WireGuard Update Failed' });
       }
     }).catch(function(){
       saveBtn.disabled = false;
@@ -3121,7 +3207,7 @@ function renderVisualiser(switchName, module) {
     var errEl    = $('wgcIpError');
 
     // Validate
-    if (!name || !ip || !endpoint) { alert('Name, IP and endpoint are required'); return; }
+    if (!name || !ip || !endpoint) { appAlert('Name, IP and endpoint are required', { title: 'Validation Error' }); return; }
     var ipRe = /^192\.168\.168\.\d{1,3}$/;
     if (!ipRe.test(ip)) {
       if (errEl) { errEl.textContent = 'Must be in 192.168.168.0/24'; errEl.style.display = ''; }
@@ -3130,7 +3216,7 @@ function renderVisualiser(switchName, module) {
     if (errEl) errEl.style.display = 'none';
 
     var clientAllowedAddress = tunnel === 'full' ? '0.0.0.0/0' : splitNets.trim();
-    if (tunnel === 'split' && !clientAllowedAddress) { alert('Enter split tunnel networks'); return; }
+    if (tunnel === 'split' && !clientAllowedAddress) { appAlert('Enter split tunnel networks', { title: 'Validation Error' }); return; }
 
     createSaveBtn.disabled = true;
     createSaveBtn.textContent = 'Creating…';
@@ -3152,12 +3238,12 @@ function renderVisualiser(switchName, module) {
         var configDisp = $('wgConfigDisplay'); if (configDisp) configDisp.style.display = '';
         loadWgData();
       } else {
-        alert('Error: ' + data.error);
+        appAlert('Error: ' + data.error, { title: 'WireGuard Create Failed' });
       }
     }).catch(function(){
       createSaveBtn.disabled = false;
       createSaveBtn.textContent = 'Create Peer';
-      alert('Request failed');
+      appAlert('Request failed', { title: 'WireGuard Create Failed' });
     });
   });
 
@@ -3347,7 +3433,7 @@ function renderVisualiser(switchName, module) {
                 window.loadInventory();
               }
             })
-            .catch(function(err){ alert('Failed to save: ' + err.message); });
+            .catch(function(err){ appAlert('Failed to save: ' + err.message, { title: 'Inventory Update Failed' }); });
           });
         });
       }
