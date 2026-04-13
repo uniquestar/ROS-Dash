@@ -34,6 +34,11 @@
     #sidenav.mobile-open .nav-badge{opacity:1}
     .nav-badge{font-family:var(--font-mono);font-size:.6rem;font-weight:600;background:rgba(56,189,248,.15);color:var(--accent-rx);border-radius:8px;padding:1px 5px;margin-left:auto;opacity:0;transition:opacity .15s .08s;white-space:nowrap}
     #sidenav:hover .nav-badge{opacity:1}
+    .nav-badge.ok{background:rgba(74,222,128,.15);color:var(--accent-ok)}
+    .nav-badge-grp{display:flex;gap:3px;margin-left:auto;opacity:0;transition:opacity .15s .08s}
+    #sidenav:hover .nav-badge-grp{opacity:1}
+    #sidenav.mobile-open .nav-badge-grp{opacity:1}
+    .nav-badge-grp .nav-badge{margin-left:0;opacity:1;transition:none}
     /* main */
     #main{margin-left:var(--nav-w);flex:1;min-width:0;display:flex;flex-direction:column}
     /* topbar */
@@ -403,7 +408,7 @@
     <a class="nav-item" data-page="vpn" href="#">
       <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="4"/><path d="M12 12h8"/><path d="M16 10v4"/><path d="M19 9v6"/></svg></span>
       <span class="nav-label">VPN</span>
-      <span class="nav-badge" id="vpnNavBadge">0</span>
+      <span class="nav-badge-grp"><span class="nav-badge" id="vpnNavConfigured">0</span><span class="nav-badge ok" id="vpnNavBadge">0</span></span>
     </a>
     <a class="nav-item" data-page="connections" href="#">
       <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>

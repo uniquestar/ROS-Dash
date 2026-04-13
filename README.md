@@ -29,7 +29,7 @@ Forked and significantly enhanced from [MikroDash](https://github.com/SecOps-7/M
 |---|---|
 | Interfaces | All interfaces as compact tiles with status, IP(s), live rates, and cumulative RX/TX totals |
 | DHCP | Active DHCP leases with hostname, IP, MAC, status, lease type, and switch port location. Users with dhcp:write permission can Reserve (make static) or Release (remove static) leases directly from the table |
-| VPN | All WireGuard peers (active + idle) as tiles sorted active-first, with allowed IPs, endpoint, handshake, and traffic counters |
+| VPN | All WireGuard peers (active + idle) as tiles sorted active-first, with allowed IPs, endpoint, handshake, and traffic counters. Nav badge shows configured count (blue) and connected count (green) simultaneously |
 | Connections | World map with animated arcs to destination countries, per-country protocol breakdown, top ports panel, and click-through connection detail modal |
 | Switches | Graphical port visualiser and port allocation table — populated via SNMP from Cisco Catalyst switches, with optional per-switch write controls |
 | Inventory | Canonical client inventory aggregated from DHCP leases, ARP, switch MAC tables, and router LLDP/CDP neighbors, with search and online/offline filtering |
