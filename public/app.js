@@ -39,8 +39,9 @@ var uptimeChip       = $('uptimeChip');
 var wirelessTable    = $('wirelessTable');
 var wirelessTabBadge = $('wirelessTabBadge');
 var wirelessNavBadge = $('wirelessNavBadge');
-var vpnTable         = $('vpnTable');
-var vpnCount         = $('vpnCount');
+var vpnTable            = $('vpnTable');
+var vpnCount            = $('vpnCount');
+var vpnNavConfigured    = $('vpnNavConfigured');
 var firewallTable    = $('firewallTable');
 var routerTag        = $('routerTag');
 var pageTitle        = $('pageTitle');
@@ -831,6 +832,8 @@ if (ndVpnCount) ndVpnCount.textContent = data.tunnels ? data.tunnels.filter(func
   vpnCount.textContent=peers.length;
   vpnCount.className='badge '+(peers.length>0?'bg-green':'bg-secondary');
   var nb=$('vpnNavBadge'); if(nb)nb.textContent=peers.length;
+  var allWg=(data.tunnels||[]).filter(function(t){return t.type==='WireGuard';});
+  if(vpnNavConfigured)vpnNavConfigured.textContent=allWg.length;
   // Dashboard mini card
   if(!peers.length){vpnTable.innerHTML='<tr><td colspan="3" class="empty-state">No active peers</td></tr>';}
   else{
@@ -844,7 +847,7 @@ if (ndVpnCount) ndVpnCount.textContent = data.tunnels ? data.tunnels.filter(func
     }).join('');
   }
   // VPN page — show ALL peers regardless of state
-  var allPeers=(data.tunnels||[]).filter(function(t){return t.type==="WireGuard";});
+  var allPeers=allWg.slice();
 
   // Tile grid — all peers, active first
   allPeers.sort(function(a,b){return (b.state==='connected'?1:0)-(a.state==='connected'?1:0);});
