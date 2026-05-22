@@ -816,19 +816,19 @@
             <h3 class="card-title mb-0">DHCP Leases</h3>
             <span id="dhcpTotalBadge" class="badge bg-secondary" style="font-family:var(--font-mono);font-size:.68rem">0</span>
           </div>
-          <input id="dhcpSearch" class="form-control form-control-sm" placeholder="Search hostname, IP, MAC&#8230;" style="max-width:260px"/>
+          <input id="dhcpSearch" class="form-control form-control-sm" placeholder="Search hostname, IP, MAC, Client ID&#8230;" style="max-width:260px"/>
         </div>
         <div class="card-body p-0">
           <div class="table-responsive">
             <table class="table table-vcenter mb-0" style="table-layout:fixed;width:100%">
-                <colgroup><col style="width:18%"><col style="width:11%"><col style="width:14%"><col style="width:9%"><col style="width:8%"><col style="width:13%"><col style="width:12%"><col style="width:8%"></colgroup>
-                <thead><tr id="dhcpHeaderRow"><th data-dhcp-col="hostname" data-label="Hostname">Hostname</th><th data-dhcp-col="ip" data-label="IP">IP</th><th data-dhcp-col="mac" data-label="MAC">MAC</th><th data-dhcp-col="status" data-label="Status">Status</th><th data-dhcp-col="type" data-label="Type">Type</th><th data-dhcp-col="switch" data-label="Switch">Switch</th><th data-dhcp-col="port" data-label="Port">Port</th><th data-dhcp-col="action" data-label="Action" style="font-size:.75rem;color:var(--text-muted);font-weight:500">Action</th></tr></thead>
+                <colgroup><col style="width:16%"><col style="width:10%"><col style="width:13%"><col style="width:13%"><col style="width:8%"><col style="width:7%"><col style="width:12%"><col style="width:11%"><col style="width:10%"></colgroup>
+                <thead><tr id="dhcpHeaderRow"><th data-dhcp-col="hostname" data-label="Hostname">Hostname</th><th data-dhcp-col="ip" data-label="IP">IP</th><th data-dhcp-col="mac" data-label="MAC">MAC</th><th data-dhcp-col="clientid" data-label="Client ID">Client ID</th><th data-dhcp-col="status" data-label="Status">Status</th><th data-dhcp-col="type" data-label="Type">Type</th><th data-dhcp-col="switch" data-label="Switch">Switch</th><th data-dhcp-col="port" data-label="Port">Port</th><th data-dhcp-col="action" data-label="Action" style="font-size:.75rem;color:var(--text-muted);font-weight:500">Action</th></tr></thead>
             </table>
           </div>
           <div class="data-scroll" id="dhcpScrollWrap" style="max-height:calc(100vh - 200px);overflow-y:auto">
             <table class="table table-vcenter mb-0" style="table-layout:fixed;width:100%">
-              <colgroup><col style="width:18%"><col style="width:11%"><col style="width:14%"><col style="width:9%"><col style="width:8%"><col style="width:13%"><col style="width:12%"><col style="width:8%"></colgroup>
-              <tbody id="dhcpTable"><tr><td colspan="8" class="empty-state">Waiting for lease data&#8230;</td></tr></tbody>
+              <colgroup><col style="width:16%"><col style="width:10%"><col style="width:13%"><col style="width:13%"><col style="width:8%"><col style="width:7%"><col style="width:12%"><col style="width:11%"><col style="width:10%"></colgroup>
+              <tbody id="dhcpTable"><tr><td colspan="9" class="empty-state">Waiting for lease data&#8230;</td></tr></tbody>
             </table>
           </div>
         </div>

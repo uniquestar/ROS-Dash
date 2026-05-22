@@ -31,6 +31,7 @@ class DhcpLeasesCollector extends BaseCollector {
   _applyLease(l) {
     const ip   = l.address || l['active-address'];
     const mac  = l['mac-address'] || l['active-mac-address'] || l.mac;
+    const clientId = l['client-id'] || l.clientId || '';
     const name = (l.comment && l.comment.trim()) ? l.comment.trim()
                : (l['host-name'] && l['host-name'].trim()) ? l['host-name'].trim() : '';
     const status  = l.status || '';
@@ -38,7 +39,7 @@ class DhcpLeasesCollector extends BaseCollector {
     const type    = dynamic ? 'dynamic' : 'static';
 
     const id = l['.id'] || '';
-    if (ip) this.byIP.set(ip, { name, mac, hostName: l['host-name'] || '', comment: l.comment || '', status, type, id });
+    if (ip) this.byIP.set(ip, { name, mac, clientId, hostName: l['host-name'] || '', comment: l.comment || '', status, type, id });
     if (mac) this.byMAC.set(mac, { name, ip });
 
     if (mac && ip && !this.seenMACs.has(mac)) {
