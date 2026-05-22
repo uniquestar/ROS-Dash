@@ -144,6 +144,7 @@ var dhcpColumnFilters = {
   hostname: '',
   ip: '',
   mac: '',
+  clientid: '',
   status: '',
   type: '',
   switch: '',
@@ -234,6 +235,7 @@ function dhcpLeaseFieldValue(lease, switchPort, field) {
   if (field === 'hostname') return String(l.name || l.hostName || '').toLowerCase();
   if (field === 'ip') return String(l.ip || '').toLowerCase();
   if (field === 'mac') return String(l.mac || '').toLowerCase();
+  if (field === 'clientid') return String(l.clientId || '').toLowerCase();
   if (field === 'status') return String(l.status || '').toLowerCase();
   if (field === 'type') return String(l.type || 'dynamic').toLowerCase();
   if (field === 'switch') return String((sp && sp.switch) || '').toLowerCase();
@@ -987,7 +989,7 @@ function renderDhcp(leases){
   var filtered = leases.filter(function(l){
     var sp=window._switchPortByMac&&l.mac?(window._switchPortByMac[l.mac.toLowerCase()]||null):null;
     if (leaseFilter) {
-      var hay=(l.name+' '+l.ip+' '+l.mac+' '+l.comment+' '+(sp?sp.switch+' '+sp.port:'')).toLowerCase();
+      var hay=(l.name+' '+l.ip+' '+l.mac+' '+(l.clientId||'')+' '+l.comment+' '+(sp?sp.switch+' '+sp.port:'')).toLowerCase();
       if (hay.indexOf(leaseFilter)===-1) return false;
     }
     if (!hasColumnFilters) return true;
@@ -1005,7 +1007,7 @@ function renderDhcp(leases){
     dhcpTotalBadge.style.fontSize = '.68rem';
   }
   if(dhcpNavBadge) dhcpNavBadge.textContent = count;
-if(!filtered.length){dhcpTable.innerHTML='<tr><td colspan="8" class="empty-state">No leases'+((leaseFilter||hasColumnFilters)?' matching filter':'')+'\u2026</td></tr>';return;}
+if(!filtered.length){dhcpTable.innerHTML='<tr><td colspan="9" class="empty-state">No leases'+((leaseFilter||hasColumnFilters)?' matching filter':'')+'\u2026</td></tr>';return;}
   dhcpTable.innerHTML=filtered.map(function(l){
     var st=(l.status||'').toLowerCase();
     var pillCls=st==='bound'?'bound':st==='waiting'||st==='offered'?'waiting':'expired';
@@ -1015,6 +1017,7 @@ if(!filtered.length){dhcpTable.innerHTML='<tr><td colspan="8" class="empty-state
       '<td style="font-weight:600">'+esc(l.name||l.hostName||'\u2014')+'</td>'+
       '<td style="color:var(--accent-rx)">'+esc(l.ip)+'</td>'+
       '<td style="font-size:.7rem;color:var(--text-muted)">'+esc(l.mac||'\u2014')+'</td>'+
+      '<td style="font-family:var(--font-mono);font-size:.7rem;color:var(--text-muted)">'+esc(l.clientId||'\u2014')+'</td>'+
       '<td><span class="lease-pill '+pillCls+'">'+esc(l.status||'?')+'</span></td>'+
       '<td style="font-size:.75rem;'+typeCls+'">'+esc(l.type||'dynamic')+'</td>'+
       '<td style="font-size:.75rem;color:var(--text-muted)">'+esc((sp&&sp.switch)||'\u2014')+'</td>'+
