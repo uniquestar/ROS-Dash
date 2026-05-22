@@ -162,6 +162,13 @@
     .lease-pill.expired{background:rgba(148,163,190,.08);color:var(--text-muted);border:1px solid var(--border)}
     .lease-online{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;vertical-align:middle}
     .lease-online.yes{background:var(--accent-ok)} .lease-online.no{background:rgba(148,163,190,.3)}
+    .dhcp-filterable{cursor:pointer;position:relative;user-select:none;transition:color .15s,background .15s}
+    .dhcp-filterable:hover{background:rgba(56,189,248,.08);color:var(--text-main)}
+    .dhcp-filter-set{color:var(--accent-rx)}
+    .dhcp-filter-set::after{content:' \2022';color:var(--accent-rx)}
+    .dhcp-col-filter-input{width:100%;height:24px;border-radius:5px;border:1px solid rgba(56,189,248,.3);background:rgba(56,189,248,.07);color:var(--text-main);font-family:var(--font-mono);font-size:.67rem;padding:2px 6px;outline:none}
+    .dhcp-col-filter-input:focus{border-color:var(--accent-rx);box-shadow:0 0 0 1px rgba(56,189,248,.22)}
+    .dhcp-col-filter-input::placeholder{color:var(--text-muted)}
     /* logs */
     #logs{background:rgba(2,5,14,.85);font-family:var(--font-mono);font-size:11.5px;height:calc(100vh - 160px);overflow-y:auto;white-space:pre-wrap;word-break:break-all;color:#d5d7de;padding:10px 12px;border-radius:6px;line-height:1.6}
     html[data-theme="light"] #logs{background:rgba(230,235,245,.9);color:#1a2030}
@@ -815,7 +822,7 @@
           <div class="table-responsive">
             <table class="table table-vcenter mb-0" style="table-layout:fixed;width:100%">
                 <colgroup><col style="width:18%"><col style="width:11%"><col style="width:14%"><col style="width:9%"><col style="width:8%"><col style="width:13%"><col style="width:12%"><col style="width:8%"></colgroup>
-                <thead><tr><th>Hostname</th><th>IP</th><th>MAC</th><th>Status</th><th>Type</th><th>Switch</th><th>Port</th><th style="font-size:.75rem;color:var(--text-muted);font-weight:500">Action</th></tr></thead>
+                <thead><tr id="dhcpHeaderRow"><th data-dhcp-col="hostname" data-label="Hostname">Hostname</th><th data-dhcp-col="ip" data-label="IP">IP</th><th data-dhcp-col="mac" data-label="MAC">MAC</th><th data-dhcp-col="status" data-label="Status">Status</th><th data-dhcp-col="type" data-label="Type">Type</th><th data-dhcp-col="switch" data-label="Switch">Switch</th><th data-dhcp-col="port" data-label="Port">Port</th><th data-dhcp-col="action" data-label="Action" style="font-size:.75rem;color:var(--text-muted);font-weight:500">Action</th></tr></thead>
             </table>
           </div>
           <div class="data-scroll" id="dhcpScrollWrap" style="max-height:calc(100vh - 200px);overflow-y:auto">

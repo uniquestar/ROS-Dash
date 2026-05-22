@@ -140,6 +140,112 @@ var fwTab = 'top', fwData = {};
 var connHistory = [], MAX_CONN_HIST = 60;
 var lastTalkers = null, lastLanData = null;
 var allLeases = [], leaseFilter = '';
+var dhcpColumnFilters = {
+  hostname: '',
+  ip: '',
+  mac: '',
+  status: '',
+  type: '',
+  switch: '',
+  port: '',
+  action: '',
+};
+
+function hasDhcpColumnFilters() {
+  return Object.keys(dhcpColumnFilters).some(function(key){ return !!dhcpColumnFilters[key]; });
+}
+
+function setDhcpHeaderState(th) {
+  if (!th) return;
+  var col = th.getAttribute('data-dhcp-col');
+  var active = !!(col && dhcpColumnFilters[col]);
+  th.classList.toggle('dhcp-filter-set', active);
+}
+
+function closeDhcpHeaderInput(th) {
+  if (!th) return;
+  var col = th.getAttribute('data-dhcp-col');
+  var label = th.getAttribute('data-label') || '';
+  if (!col) return;
+  th.textContent = label;
+  setDhcpHeaderState(th);
+}
+
+function openDhcpHeaderInput(th) {
+  if (!th) return;
+  var col = th.getAttribute('data-dhcp-col');
+  var label = th.getAttribute('data-label') || '';
+  if (!col) return;
+
+  var existingInput = th.querySelector('input');
+  if (existingInput) {
+    existingInput.focus();
+    existingInput.select();
+    return;
+  }
+
+  th.innerHTML = '<input type="text" class="dhcp-col-filter-input" placeholder="Filter ' + esc(label) + '" value="' + esc(dhcpColumnFilters[col] || '') + '">';
+  var input = th.querySelector('input');
+  if (!input) return;
+
+  input.addEventListener('click', function(e){ e.stopPropagation(); });
+  input.addEventListener('input', function(){
+    dhcpColumnFilters[col] = (input.value || '').trim().toLowerCase();
+    renderDhcp(allLeases);
+  });
+  input.addEventListener('keydown', function(e){
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      return;
+    }
+    if (e.key === 'Escape') {
+      input.value = '';
+      dhcpColumnFilters[col] = '';
+      renderDhcp(allLeases);
+      closeDhcpHeaderInput(th);
+    }
+  });
+
+  setTimeout(function(){
+    input.focus();
+    input.select();
+  }, 0);
+}
+
+function initDhcpHeaderFilters() {
+  var row = $('dhcpHeaderRow');
+  if (!row) return;
+  row.querySelectorAll('th[data-dhcp-col]').forEach(function(th){
+    th.classList.add('dhcp-filterable');
+    setDhcpHeaderState(th);
+    th.addEventListener('click', function(){
+      if (th.querySelector('input')) {
+        closeDhcpHeaderInput(th);
+      } else {
+        openDhcpHeaderInput(th);
+      }
+    });
+  });
+}
+
+function dhcpLeaseFieldValue(lease, switchPort, field) {
+  var l = lease || {};
+  var sp = switchPort || null;
+  if (field === 'hostname') return String(l.name || l.hostName || '').toLowerCase();
+  if (field === 'ip') return String(l.ip || '').toLowerCase();
+  if (field === 'mac') return String(l.mac || '').toLowerCase();
+  if (field === 'status') return String(l.status || '').toLowerCase();
+  if (field === 'type') return String(l.type || 'dynamic').toLowerCase();
+  if (field === 'switch') return String((sp && sp.switch) || '').toLowerCase();
+  if (field === 'port') return String((sp && sp.port) || '').toLowerCase();
+  if (field === 'action') {
+    var leaseType = String(l.type || 'dynamic').toLowerCase();
+    if (leaseType === 'dynamic') return 'reserve';
+    if (leaseType === 'static') return 'release';
+    return '';
+  }
+  return '';
+}
 
 // ── Theme toggle ───────────────────────────────────────────────────────────
 var THEME_KEY = 'rosdash_theme';
@@ -877,13 +983,20 @@ if (ndVpnCount) ndVpnCount.textContent = data.tunnels ? data.tunnels.filter(func
 
 // ── DHCP Leases ────────────────────────────────────────────────────────────
 function renderDhcp(leases){
-  var filtered = leaseFilter
-    ? leases.filter(function(l){
-        var sp=window._switchPortByMac&&l.mac?(window._switchPortByMac[l.mac.toLowerCase()]||null):null;
-        var hay=(l.name+' '+l.ip+' '+l.mac+' '+l.comment+' '+(sp?sp.switch+' '+sp.port:'')).toLowerCase();
-        return hay.indexOf(leaseFilter)!==-1;
-      })
-    : leases;
+  var hasColumnFilters = hasDhcpColumnFilters();
+  var filtered = leases.filter(function(l){
+    var sp=window._switchPortByMac&&l.mac?(window._switchPortByMac[l.mac.toLowerCase()]||null):null;
+    if (leaseFilter) {
+      var hay=(l.name+' '+l.ip+' '+l.mac+' '+l.comment+' '+(sp?sp.switch+' '+sp.port:'')).toLowerCase();
+      if (hay.indexOf(leaseFilter)===-1) return false;
+    }
+    if (!hasColumnFilters) return true;
+    return Object.keys(dhcpColumnFilters).every(function(field){
+      var q = dhcpColumnFilters[field];
+      if (!q) return true;
+      return dhcpLeaseFieldValue(l, sp, field).indexOf(q) !== -1;
+    });
+  });
   var count = leases.length;
   if(dhcpTotalBadge){
     dhcpTotalBadge.textContent = count;
@@ -892,7 +1005,7 @@ function renderDhcp(leases){
     dhcpTotalBadge.style.fontSize = '.68rem';
   }
   if(dhcpNavBadge) dhcpNavBadge.textContent = count;
-if(!filtered.length){dhcpTable.innerHTML='<tr><td colspan="8" class="empty-state">No leases'+(leaseFilter?' matching filter':'')+'\u2026</td></tr>';return;}
+if(!filtered.length){dhcpTable.innerHTML='<tr><td colspan="8" class="empty-state">No leases'+((leaseFilter||hasColumnFilters)?' matching filter':'')+'\u2026</td></tr>';return;}
   dhcpTable.innerHTML=filtered.map(function(l){
     var st=(l.status||'').toLowerCase();
     var pillCls=st==='bound'?'bound':st==='waiting'||st==='offered'?'waiting':'expired';
@@ -976,6 +1089,7 @@ socket.on('leases:list',function(data){
   allLeases=data.leases||[];
   renderDhcp(allLeases);
 });
+initDhcpHeaderFilters();
 if(dhcpSearch) dhcpSearch.addEventListener('input',function(){
   leaseFilter=(dhcpSearch.value||'').trim().toLowerCase();
   renderDhcp(allLeases);
