@@ -7,4 +7,6 @@ services:
       - /var/snap/docker/common/ros-dash/users.json:/app/users.json
       - /var/snap/docker/common/ros-dash/ros-dash.db:/app/ros-dash.db
       - /var/snap/docker/common/ros-dash/oui-cache.json:/app/oui-cache.json
+    environment:
+      - SWITCH_POLL_TIMEOUT_MS=45000
     restart: unless-stopped

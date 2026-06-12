@@ -90,21 +90,26 @@ async function fetchFromApi(oui) {
  * @param {string} mac - MAC address (any format)
  * @returns {string|null} Vendor name from cache, or null if not yet cached
  */
+function isLocallyAdministered(oui) {
+  return (parseInt(oui.slice(0, 2), 16) & 0x02) !== 0;
+}
+
 function lookupVendor(mac) {
   const oui = extractOui(mac);
   if (!oui) return null;
-  
+  if (isLocallyAdministered(oui)) return null;
+
   if (_cache[oui]) {
     return _cache[oui];
   }
-  
+
   if (!_pendingFetches.has(oui)) {
     _pendingFetches.add(oui);
     fetchFromApi(oui).then(() => {
       _pendingFetches.delete(oui);
     });
   }
-  
+
   return null;
 }
 
@@ -116,11 +121,12 @@ function lookupVendor(mac) {
 async function lookupVendorAsync(mac) {
   const oui = extractOui(mac);
   if (!oui) return null;
-  
+  if (isLocallyAdministered(oui)) return null;
+
   if (_cache[oui]) {
     return _cache[oui];
   }
-  
+
   return await fetchFromApi(oui);
 }
 
