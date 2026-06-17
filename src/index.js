@@ -255,10 +255,11 @@ app.post('/api/dhcp/remove-static', csrfProtection, requireAuth, requirePageWrit
 // List DHCP servers with their associated network CIDR for subnet validation
 app.get('/api/dhcp/servers', requireAuth, requirePageRead('dhcp'), async (req, res) => {
   try {
-    const [servers, networks, pools] = await Promise.all([
+    const [servers, networks, pools, addresses] = await Promise.all([
       ros.write('/ip/dhcp-server/print'),
       ros.write('/ip/dhcp-server/network/print'),
       ros.write('/ip/pool/print'),
+      ros.write('/ip/address/print'),
     ]);
 
     function ipToInt(ip) {
@@ -276,15 +277,30 @@ app.get('/api/dhcp/servers', requireAuth, requirePageRead('dhcp'), async (req, r
       if (firstIP) poolMap.set(pool.name, firstIP);
     }
 
+    // Fallback: interface name -> first IP on that interface
+    const ifAddressMap = new Map();
+    for (const addr of (addresses || [])) {
+      if (!ifAddressMap.has(addr.interface)) {
+        const ip = (addr.address || '').split('/')[0];
+        if (ip) ifAddressMap.set(addr.interface, ip);
+      }
+    }
+
     const networkCidrs = (networks || []).map(n => n.address).filter(Boolean);
 
     const result = (servers || [])
       .filter(s => s.disabled !== 'true' && s.disabled !== true)
       .map(s => {
-        const firstIP = poolMap.get(s['address-pool']);
-        const network = firstIP
-          ? (networkCidrs.find(cidr => { try { return isInCIDR(firstIP, cidr); } catch { return false; } }) || null)
+        // Try pool-based correlation first (dynamic servers)
+        const poolFirstIP = poolMap.get(s['address-pool']);
+        let network = poolFirstIP
+          ? (networkCidrs.find(cidr => { try { return isInCIDR(poolFirstIP, cidr); } catch { return false; } }) || null)
           : null;
+        // Fallback: match via the server's interface IP (static-only servers)
+        if (!network) {
+          const ifIP = ifAddressMap.get(s.interface);
+          if (ifIP) network = networkCidrs.find(cidr => { try { return isInCIDR(ifIP, cidr); } catch { return false; } }) || null;
+        }
         return { name: s.name, network: network || null };
       });
 
