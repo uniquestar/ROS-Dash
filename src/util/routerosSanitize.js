@@ -50,10 +50,17 @@ function sanitizeInterfaceName(value) {
   return s;
 }
 
+function sanitizeComment(value) {
+  const s = ensureBaseSafe(value, 'comment');
+  if (s.length > 255) throw new RouterOsInputError('comment is too long');
+  return s;
+}
+
 module.exports = {
   RouterOsInputError,
   sanitizeRosId,
   sanitizePeerName,
   sanitizeAddressListName,
   sanitizeInterfaceName,
+  sanitizeComment,
 };

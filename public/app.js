@@ -1101,10 +1101,11 @@ initDhcpHeaderFilters();
   var openBtn     = document.getElementById('dhcpAddReservationBtn');
   var closeBtn    = document.getElementById('dhcpAddModalClose');
   var cancelBtn   = document.getElementById('dhcpAddCancel');
-  var serverSel   = document.getElementById('dhcpAddServer');
-  var macInput    = document.getElementById('dhcpAddMac');
-  var ipInput     = document.getElementById('dhcpAddIp');
-  var errorDiv    = document.getElementById('dhcpAddError');
+  var serverSel    = document.getElementById('dhcpAddServer');
+  var macInput     = document.getElementById('dhcpAddMac');
+  var ipInput      = document.getElementById('dhcpAddIp');
+  var commentInput = document.getElementById('dhcpAddComment');
+  var errorDiv     = document.getElementById('dhcpAddError');
   var submitBtn   = document.getElementById('dhcpAddSubmit');
 
   function ipToInt(ip) {
@@ -1139,6 +1140,7 @@ initDhcpHeaderFilters();
     clearError();
     macInput.value = '';
     ipInput.value = '';
+    commentInput.value = '';
     modal.style.display = 'flex';
     if (!dhcpServersCache) {
       serverSel.innerHTML = '<option value="">Loading…</option>';
@@ -1175,9 +1177,10 @@ initDhcpHeaderFilters();
   if (submitBtn) {
     submitBtn.addEventListener('click', function(){
       clearError();
-      var mac    = macInput.value.trim();
-      var ip     = ipInput.value.trim();
-      var server = serverSel.value;
+      var mac     = macInput.value.trim();
+      var ip      = ipInput.value.trim();
+      var server  = serverSel.value;
+      var comment = commentInput.value.trim();
 
       if (!server) { showError('Please select a DHCP server.'); return; }
       if (!/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(mac)) {
@@ -1191,6 +1194,7 @@ initDhcpHeaderFilters();
       if (network && !isIPInCIDR(ip, network)) {
         showError('IP ' + ip + ' is not within ' + network + ' for this server.'); return;
       }
+      if (!comment) { showError('Comment is required.'); return; }
 
       submitBtn.disabled = true;
       submitBtn.textContent = '…';
@@ -1198,13 +1202,13 @@ initDhcpHeaderFilters();
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mac: mac.toUpperCase(), ip: ip, server: server })
+        body: JSON.stringify({ mac: mac.toUpperCase(), ip: ip, server: server, comment: comment })
       }).then(function(r){ return r.json(); }).then(function(data){
         submitBtn.disabled = false;
         submitBtn.textContent = 'Add Reservation';
         if (data.ok) {
           closeModal();
-          allLeases.push({ ip: ip, mac: mac.toUpperCase(), name: '', status: 'waiting', type: 'static', clientId: '', comment: '' });
+          allLeases.push({ ip: ip, mac: mac.toUpperCase(), name: comment, status: 'waiting', type: 'static', clientId: '', comment: comment });
           renderDhcp(allLeases);
         } else {
           showError(data.error || 'Failed to add reservation.');
