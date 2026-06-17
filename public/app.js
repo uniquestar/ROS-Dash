@@ -1093,6 +1093,130 @@ socket.on('leases:list',function(data){
   renderDhcp(allLeases);
 });
 initDhcpHeaderFilters();
+
+// ── DHCP Add Reservation Modal ──────────────────────────────────────────────
+(function(){
+  var dhcpServersCache = null;
+  var modal       = document.getElementById('dhcpAddModal');
+  var openBtn     = document.getElementById('dhcpAddReservationBtn');
+  var closeBtn    = document.getElementById('dhcpAddModalClose');
+  var cancelBtn   = document.getElementById('dhcpAddCancel');
+  var serverSel   = document.getElementById('dhcpAddServer');
+  var macInput    = document.getElementById('dhcpAddMac');
+  var ipInput     = document.getElementById('dhcpAddIp');
+  var errorDiv    = document.getElementById('dhcpAddError');
+  var submitBtn   = document.getElementById('dhcpAddSubmit');
+
+  function ipToInt(ip) {
+    return ip.split('.').reduce(function(acc, oct){ return (acc * 256) + parseInt(oct, 10); }, 0) >>> 0;
+  }
+  function isIPInCIDR(ip, cidr) {
+    try {
+      var parts = cidr.split('/');
+      var bits = parseInt(parts[1], 10);
+      var mask = bits === 0 ? 0 : (~((1 << (32 - bits)) - 1)) >>> 0;
+      return (ipToInt(ip) & mask) === (ipToInt(parts[0]) & mask);
+    } catch(e) { return false; }
+  }
+
+  function formatMac(v) {
+    var hex = v.replace(/[^0-9A-Fa-f]/g, '').toUpperCase().slice(0, 12);
+    var groups = [];
+    for (var i = 0; i < hex.length; i += 2) groups.push(hex.slice(i, i + 2));
+    return groups.join(':');
+  }
+
+  function showError(msg) {
+    errorDiv.textContent = msg;
+    errorDiv.style.display = 'block';
+  }
+  function clearError() {
+    errorDiv.textContent = '';
+    errorDiv.style.display = 'none';
+  }
+
+  function openModal() {
+    clearError();
+    macInput.value = '';
+    ipInput.value = '';
+    modal.style.display = 'flex';
+    if (!dhcpServersCache) {
+      serverSel.innerHTML = '<option value="">Loading…</option>';
+      fetch('/api/dhcp/servers', { credentials: 'include' })
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          dhcpServersCache = data.servers || [];
+          serverSel.innerHTML = '<option value="">— Select server —</option>' +
+            dhcpServersCache.map(function(s){
+              var label = esc(s.name) + (s.network ? ' (' + esc(s.network) + ')' : '');
+              return '<option value="' + esc(s.name) + '" data-network="' + esc(s.network || '') + '">' + label + '</option>';
+            }).join('');
+        })
+        .catch(function(){ serverSel.innerHTML = '<option value="">Error loading servers</option>'; });
+    } else {
+      serverSel.selectedIndex = 0;
+    }
+  }
+
+  function closeModal() { modal.style.display = 'none'; }
+
+  if (openBtn)   openBtn.addEventListener('click', openModal);
+  if (closeBtn)  closeBtn.addEventListener('click', closeModal);
+  if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+  if (modal)     modal.addEventListener('click', function(e){ if (e.target === modal) closeModal(); });
+
+  if (macInput) {
+    macInput.addEventListener('blur', function(){
+      var f = formatMac(macInput.value);
+      if (f) macInput.value = f;
+    });
+  }
+
+  if (submitBtn) {
+    submitBtn.addEventListener('click', function(){
+      clearError();
+      var mac    = macInput.value.trim();
+      var ip     = ipInput.value.trim();
+      var server = serverSel.value;
+
+      if (!server) { showError('Please select a DHCP server.'); return; }
+      if (!/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(mac)) {
+        showError('Invalid MAC address — format must be AA:BB:CC:DD:EE:FF.'); return;
+      }
+      if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) {
+        showError('Invalid IP address.'); return;
+      }
+      var selOpt = serverSel.options[serverSel.selectedIndex];
+      var network = selOpt && selOpt.dataset.network;
+      if (network && !isIPInCIDR(ip, network)) {
+        showError('IP ' + ip + ' is not within ' + network + ' for this server.'); return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = '…';
+      secureApiCall('/api/dhcp/add-static', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac: mac.toUpperCase(), ip: ip, server: server })
+      }).then(function(r){ return r.json(); }).then(function(data){
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Add Reservation';
+        if (data.ok) {
+          closeModal();
+          allLeases.push({ ip: ip, mac: mac.toUpperCase(), name: '', status: 'waiting', type: 'static', clientId: '', comment: '' });
+          renderDhcp(allLeases);
+        } else {
+          showError(data.error || 'Failed to add reservation.');
+        }
+      }).catch(function(){
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Add Reservation';
+        showError('Network error — please try again.');
+      });
+    });
+  }
+})();
 if(dhcpSearch) dhcpSearch.addEventListener('input',function(){
   leaseFilter=(dhcpSearch.value||'').trim().toLowerCase();
   renderDhcp(allLeases);
@@ -2145,6 +2269,8 @@ sendNotif = function(title, body, tag){
       var perms = me.permissions || {};
       if (window._onMeLoaded) window._onMeLoaded(me);
       dhcpCanWrite = !!(perms.dhcp && perms.dhcp.write);
+      var dhcpAddBtn = document.getElementById('dhcpAddReservationBtn');
+      if (dhcpAddBtn) dhcpAddBtn.style.display = dhcpCanWrite ? '' : 'none';
       interfacesCanWrite = !!(perms.interfaces && perms.interfaces.write);
       switchCanWrite = !!(perms.switches && perms.switches.write);
       switchAdminWrite = !!(perms.switchadmin && perms.switchadmin.write);

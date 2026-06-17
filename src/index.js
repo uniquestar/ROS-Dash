@@ -93,6 +93,13 @@ const dhcpRemoveStaticSchema = z.object({
   ip: z.string().regex(ipRegex, 'Invalid IP address'),
 });
 
+const macRegex = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
+const dhcpAddStaticSchema = z.object({
+  mac: z.string().regex(macRegex, 'Invalid MAC address (format: AA:BB:CC:DD:EE:FF)'),
+  ip: z.string().regex(ipRegex, 'Invalid IP address'),
+  server: z.string().min(1, 'Server is required').max(64, 'Server name too long'),
+});
+
 // WireGuard schemas
 const wireguardCreatePeerSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -240,6 +247,72 @@ app.post('/api/dhcp/remove-static', csrfProtection, requireAuth, requirePageWrit
     }
     const msg = getErrorMessage(e);
     console.error('[dhcp] remove-static failed:', msg);
+    res.status(500).json({ error: msg });
+  }
+});
+
+// List DHCP servers with their associated network CIDR for subnet validation
+app.get('/api/dhcp/servers', requireAuth, requirePageRead('dhcp'), async (req, res) => {
+  try {
+    const [servers, networks, pools] = await Promise.all([
+      ros.write('/ip/dhcp-server/print'),
+      ros.write('/ip/dhcp-server/network/print'),
+      ros.write('/ip/pool/print'),
+    ]);
+
+    function ipToInt(ip) {
+      return ip.split('.').reduce((acc, oct) => (acc * 256) + parseInt(oct, 10), 0) >>> 0;
+    }
+    function isInCIDR(ip, cidr) {
+      const [net, bits] = cidr.split('/');
+      const mask = bits === '0' ? 0 : (~((1 << (32 - parseInt(bits))) - 1)) >>> 0;
+      return (ipToInt(ip) & mask) === (ipToInt(net) & mask);
+    }
+
+    const poolMap = new Map();
+    for (const pool of (pools || [])) {
+      const firstIP = (pool.ranges || '').split(',')[0].split('-')[0].trim();
+      if (firstIP) poolMap.set(pool.name, firstIP);
+    }
+
+    const networkCidrs = (networks || []).map(n => n.address).filter(Boolean);
+
+    const result = (servers || [])
+      .filter(s => s.disabled !== 'true' && s.disabled !== true)
+      .map(s => {
+        const firstIP = poolMap.get(s['address-pool']);
+        const network = firstIP
+          ? (networkCidrs.find(cidr => { try { return isInCIDR(firstIP, cidr); } catch { return false; } }) || null)
+          : null;
+        return { name: s.name, network: network || null };
+      });
+
+    res.json({ servers: result });
+  } catch (e) {
+    console.error('[dhcp] servers list failed:', getErrorMessage(e));
+    res.status(500).json({ error: getErrorMessage(e) });
+  }
+});
+
+// Add a manual static DHCP reservation
+app.post('/api/dhcp/add-static', csrfProtection, requireAuth, requirePageWrite('dhcp'), async (req, res) => {
+  try {
+    const { mac, ip, server } = dhcpAddStaticSchema.parse(req.body);
+    const safeMac = mac.toUpperCase();
+    const safeServer = sanitizeInterfaceName(server);
+    await ros.write('/ip/dhcp-server/lease/add', [
+      '=address=' + ip,
+      '=mac-address=' + safeMac,
+      '=server=' + safeServer,
+    ]);
+    console.log(`[dhcp] added static lease: ${ip} mac=${safeMac} server=${safeServer}`);
+    auditLog(req, 'dhcp.add-static', ip, safeServer, 'ok');
+    res.json({ ok: true });
+  } catch (e) {
+    if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors[0].message });
+    if (e instanceof RouterOsInputError) return res.status(400).json({ error: e.message });
+    const msg = getErrorMessage(e);
+    console.error('[dhcp] add-static failed:', msg);
     res.status(500).json({ error: msg });
   }
 });
