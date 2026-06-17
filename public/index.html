@@ -816,7 +816,10 @@
             <h3 class="card-title mb-0">DHCP Leases</h3>
             <span id="dhcpTotalBadge" class="badge bg-secondary" style="font-family:var(--font-mono);font-size:.68rem">0</span>
           </div>
-          <input id="dhcpSearch" class="form-control form-control-sm" placeholder="Search hostname, IP, MAC, Client ID&#8230;" style="max-width:260px"/>
+          <div class="d-flex align-items-center gap-2">
+            <button id="dhcpAddReservationBtn" class="btn btn-sm btn-outline-primary py-0 px-2" style="display:none;font-size:.75rem">+ Add Reservation</button>
+            <input id="dhcpSearch" class="form-control form-control-sm" placeholder="Search hostname, IP, MAC, Client ID&#8230;" style="max-width:260px"/>
+          </div>
         </div>
         <div class="card-body p-0">
           <div class="table-responsive">
@@ -876,6 +879,37 @@
       </div>
     </div>
   </div>
+
+<!-- DHCP Add Reservation Modal -->
+<div id="dhcpAddModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;width:100%;max-width:420px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
+      <h4 style="margin:0;color:var(--text-main)">Add DHCP Reservation</h4>
+      <button id="dhcpAddModalClose" style="background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:.85rem">
+      <div>
+        <label style="font-size:.75rem;color:var(--text-muted);display:block;margin-bottom:.25rem">DHCP Server</label>
+        <select id="dhcpAddServer" class="form-control form-control-sm">
+          <option value="">— Select server —</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:.75rem;color:var(--text-muted);display:block;margin-bottom:.25rem">MAC Address</label>
+        <input id="dhcpAddMac" type="text" class="form-control form-control-sm" placeholder="AA:BB:CC:DD:EE:FF" maxlength="17" style="font-family:var(--font-mono)">
+      </div>
+      <div>
+        <label style="font-size:.75rem;color:var(--text-muted);display:block;margin-bottom:.25rem">IP Address</label>
+        <input id="dhcpAddIp" type="text" class="form-control form-control-sm" placeholder="10.100.10.50" style="font-family:var(--font-mono)">
+      </div>
+      <div id="dhcpAddError" style="display:none;font-size:.75rem;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:.5rem .75rem"></div>
+      <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.25rem">
+        <button id="dhcpAddCancel" class="btn btn-sm btn-ghost-secondary">Cancel</button>
+        <button id="dhcpAddSubmit" class="btn btn-sm btn-primary">Add Reservation</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- WireGuard Edit Modal -->
 <div id="wgEditModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center">
