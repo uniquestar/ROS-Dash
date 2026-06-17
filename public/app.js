@@ -1160,7 +1160,7 @@ initDhcpHeaderFilters();
     }
   }
 
-  function closeModal() { modal.style.display = 'none'; }
+  function closeModal() { modal.style.display = 'none'; dhcpServersCache = null; }
 
   if (openBtn)   openBtn.addEventListener('click', openModal);
   if (closeBtn)  closeBtn.addEventListener('click', closeModal);
