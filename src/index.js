@@ -12,7 +12,7 @@ const express = require('express');
 const http    = require('http');
 const { Server } = require('socket.io');
 const { z } = require('zod');
-const { RouterOsInputError, sanitizeRosId, sanitizePeerName, sanitizeAddressListName, sanitizeInterfaceName } = require('./util/routerosSanitize');
+const { RouterOsInputError, sanitizeRosId, sanitizePeerName, sanitizeAddressListName, sanitizeInterfaceName, sanitizeComment } = require('./util/routerosSanitize');
 const { getErrorMessage } = require('./util/errors');
 const { validatePassword } = require('./util/passwordPolicy');
 const { initOuiCache, lookupVendor } = require('./util/oui');
@@ -98,6 +98,7 @@ const dhcpAddStaticSchema = z.object({
   mac: z.string().regex(macRegex, 'Invalid MAC address (format: AA:BB:CC:DD:EE:FF)'),
   ip: z.string().regex(ipRegex, 'Invalid IP address'),
   server: z.string().min(1, 'Server is required').max(64, 'Server name too long'),
+  comment: z.string().min(1, 'Comment is required').max(255, 'Comment too long'),
 });
 
 // WireGuard schemas
@@ -297,13 +298,15 @@ app.get('/api/dhcp/servers', requireAuth, requirePageRead('dhcp'), async (req, r
 // Add a manual static DHCP reservation
 app.post('/api/dhcp/add-static', csrfProtection, requireAuth, requirePageWrite('dhcp'), async (req, res) => {
   try {
-    const { mac, ip, server } = dhcpAddStaticSchema.parse(req.body);
+    const { mac, ip, server, comment } = dhcpAddStaticSchema.parse(req.body);
     const safeMac = mac.toUpperCase();
     const safeServer = sanitizeInterfaceName(server);
+    const safeComment = sanitizeComment(comment);
     await ros.write('/ip/dhcp-server/lease/add', [
       '=address=' + ip,
       '=mac-address=' + safeMac,
       '=server=' + safeServer,
+      '=comment=' + safeComment,
     ]);
     console.log(`[dhcp] added static lease: ${ip} mac=${safeMac} server=${safeServer}`);
     auditLog(req, 'dhcp.add-static', ip, safeServer, 'ok');
