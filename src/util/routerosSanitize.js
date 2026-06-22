@@ -51,7 +51,9 @@ function sanitizeInterfaceName(value) {
 }
 
 function sanitizeComment(value) {
-  const s = ensureBaseSafe(value, 'comment');
+  const s = String(value || '').trim();
+  if (!s) throw new RouterOsInputError('comment is required');
+  if (/[\r\n\0]/.test(s)) throw new RouterOsInputError('comment contains invalid characters');
   if (s.length > 255) throw new RouterOsInputError('comment is too long');
   return s;
 }
