@@ -1,0 +1,14 @@
+{
+  "switches": [
+    {
+      "name": "IE_Switch",
+      "ip": "10.101.34.2",
+      "community": "OmegaWay",
+      "writeCommunity": "proAV1988!",
+      "poePowerDivisor": 100,
+      "mikrotikInterface": "FILL_IN_INTERFACE_NAME",
+      "defaultVlan": 0,
+      "uplinkPorts": ["FILL_IN_UPLINK_PORT"]
+    }
+  ]
+}
