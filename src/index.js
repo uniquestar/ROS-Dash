@@ -369,6 +369,7 @@ app.post('/api/interfaces/admin', csrfProtection, requireAuth, requirePageWrite(
 // ── WireGuard Management ──────────────────────────────────────────────────
 
 const { generateKeypair, generatePsk, buildConfig } = require('./util/wireguard');
+const { usedPeerIps, nextFreeIp } = require('./util/wgAllocator');
 
 // Get all WireGuard user peers with address list membership
 app.get('/api/wireguard/peers', requireAuth, requirePageRead('vpn'), async (req, res) => {
@@ -438,6 +439,26 @@ app.get('/api/wireguard/used-ips', requireAuth, requirePageRead('vpn'), async (r
   }
 });
 
+// Suggest the next free tunnel address for a new peer
+app.get('/api/wireguard/next-ip', requireAuth, requirePageRead('vpn'), async (req, res) => {
+  try {
+    const [peers, addrs] = await Promise.all([
+      ros.write('/interface/wireguard/peers/print'),
+      ros.write('/ip/address/print'),
+    ]);
+    // The router's own address on the WG interface and the pushed DNS server are never handed out
+    const reserved = (addrs || [])
+      .filter(a => a.interface === WG_INTERFACE)
+      .map(a => (a.address || '').split('/')[0])
+      .concat(WG_CLIENT_DNS);
+    const ip = nextFreeIp(WG_ALLOWED_SUBNET, usedPeerIps(peers), reserved);
+    if (!ip) return res.status(409).json({ error: 'No free addresses left in ' + WG_ALLOWED_SUBNET, subnet: WG_ALLOWED_SUBNET });
+    res.json({ ip, subnet: WG_ALLOWED_SUBNET });
+  } catch(e) {
+    res.status(500).json({ error: getErrorMessage(e) });
+  }
+});
+
 // Create new WireGuard peer
 app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('vpn'), async (req, res) => {
   try {
@@ -449,8 +470,7 @@ app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('
 
     // Check for duplicate
     const existing = await ros.write('/interface/wireguard/peers/print');
-    const used = (existing || []).map(p => (p['allowed-address'] || '').split('/')[0]);
-    if (used.includes(ip)) return res.status(409).json({ error: 'IP address ' + ip + ' is already in use' });
+    if (usedPeerIps(existing).has(ip)) return res.status(409).json({ error: 'IP address ' + ip + ' is already in use' });
 
     // Generate keys
     const { privateKey, publicKey } = generateKeypair();

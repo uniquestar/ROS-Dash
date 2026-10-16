@@ -3262,6 +3262,7 @@ function renderVisualiser(switchName, module) {
   var _wgPeers    = [];
   var _wgLists    = [];
   var _wanIps     = [];
+  var _wgSubnet   = '192.168.168.0/24'; // replaced by the server's WG_ALLOWED_SUBNET on first next-ip lookup
   var _editPeer   = null;
   var _configName = '';
   var vpnCanWrite = false;
@@ -3423,6 +3424,19 @@ function renderVisualiser(switchName, module) {
     var nameEl = $('wgcName'); if (nameEl) nameEl.value = '';
     var ipEl   = $('wgcIp');   if (ipEl)   ipEl.value   = '';
     var errEl  = $('wgcIpError'); if (errEl) errEl.style.display = 'none';
+
+    // Pre-fill the next free tunnel address (still editable)
+    if (ipEl) ipEl.placeholder = 'Finding next free address…';
+    fetch('/api/wireguard/next-ip', { credentials: 'include' })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if (data.subnet) _wgSubnet = data.subnet;
+        if (!ipEl) return;
+        ipEl.placeholder = _wgSubnet.replace(/\.0\/\d+$/, '.x');
+        if (data.ip && !ipEl.value) ipEl.value = data.ip;
+        if (!data.ip && data.error && errEl) { errEl.textContent = data.error; errEl.style.display = ''; }
+      })
+      .catch(function(){ if (ipEl) ipEl.placeholder = _wgSubnet.replace(/\.0\/\d+$/, '.x'); });
     document.querySelectorAll('input[name="wgcTunnel"]').forEach(function(r){ r.checked = r.value === 'full'; });
     var splitWrap = $('wgcSplitWrap'); if (splitWrap) splitWrap.style.display = 'none';
     var splitNets = $('wgcSplitNets'); if (splitNets) splitNets.value = '';
@@ -3461,9 +3475,11 @@ function renderVisualiser(switchName, module) {
 
     // Validate
     if (!name || !ip || !endpoint) { appAlert('Name, IP and endpoint are required', { title: 'Validation Error' }); return; }
-    var ipRe = /^192\.168\.168\.\d{1,3}$/;
-    if (!ipRe.test(ip)) {
-      if (errEl) { errEl.textContent = 'Must be in 192.168.168.0/24'; errEl.style.display = ''; }
+    // Quick client-side check against the configured /24; the server validates authoritatively
+    var subnetBase = _wgSubnet.replace(/\.0\/\d+$/, '.');
+    var lastOctet = ip.indexOf(subnetBase) === 0 ? ip.slice(subnetBase.length) : '';
+    if (!/^\d{1,3}$/.test(lastOctet) || +lastOctet < 1 || +lastOctet > 254) {
+      if (errEl) { errEl.textContent = 'Must be in ' + _wgSubnet; errEl.style.display = ''; }
       return;
     }
     if (errEl) errEl.style.display = 'none';
