@@ -1,0 +1,4 @@
+# Install as /etc/sudoers.d/ros-dash-deploy (root:root, mode 0440).
+# Lets the deploy user run only the root-owned ROS-Dash deploy script, with no
+# arguments, without a password. The trailing "" forbids passing arguments.
+proav ALL=(root) NOPASSWD: /usr/local/sbin/ros-dash-deploy ""
