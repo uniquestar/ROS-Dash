@@ -151,9 +151,13 @@ vim .env
 - `WG_INTERFACE` — WireGuard interface name on RouterOS (default `WireGuard`)
 - `WG_LIST_PREFIX` — firewall address-list prefix used for WireGuard groups (default `WG-`)
 - `WG_SERVER_LISTEN_PORT` — server listen port written into generated client configs (default `13231`)
-- `WG_ALLOWED_SUBNET` — allowed subnet used for peer address validation (default `192.168.168.0/24`)
+- `WG_ALLOWED_SUBNET` — allowed subnet used for peer address validation and next-free-IP suggestions when adding a peer (default `192.168.168.0/24`)
 - `WG_CLIENT_PREFIX` — client address prefix length (default `24`)
 - `WG_CLIENT_DNS` — DNS server pushed to client configs (default `192.168.168.1`)
+
+**Optional — router backup (admin-only download):**
+- `ROUTER_SSH_HOSTKEY_SHA256` — pins the router's SSH host key for the backup download. Get it with `ssh-keyscan -t ed25519 <router> | ssh-keygen -lf -`. Unset means the key isn't verified and a warning is logged.
+- `BACKUP_PASSWORD` — when set, backups are encrypted on the router with this password; otherwise they are saved unencrypted
 - `SWITCH_POLL_MS` — switch poll cadence in milliseconds (default `30000`)
 - `SWITCH_MAX_PER_TICK` — max switches polled per cycle (default `2`)
 - `SWITCH_POLL_TIMEOUT_MS` — per-switch timeout before backoff (default `15000`)
@@ -353,6 +357,8 @@ ROUTER_TLS=false             # Set true to use API-SSL
 ROUTER_TLS_INSECURE=false    # Skip TLS cert verification (self-signed certs)
 ROUTER_USER=mikrodash        # API username
 ROUTER_PASS=change-me        # API password
+ROUTER_SSH_HOSTKEY_SHA256=   # Optional: pin router SSH host key for backups
+BACKUP_PASSWORD=             # Optional: encrypt router backups
 DEFAULT_IF=WAN1              # Default WAN interface for traffic chart
 HISTORY_MINUTES=30           # Traffic chart history window
 

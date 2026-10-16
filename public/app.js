@@ -2275,6 +2275,9 @@ sendNotif = function(title, body, tag){
       dhcpCanWrite = !!(perms.dhcp && perms.dhcp.write);
       var dhcpAddBtn = document.getElementById('dhcpAddReservationBtn');
       if (dhcpAddBtn) dhcpAddBtn.style.display = dhcpCanWrite ? '' : 'none';
+      // Router backups contain secrets — admins (users write) only, matching the server check
+      var backupCard = document.getElementById('backupCard');
+      if (backupCard) backupCard.style.display = (perms.users && perms.users.write) ? '' : 'none';
       interfacesCanWrite = !!(perms.interfaces && perms.interfaces.write);
       switchCanWrite = !!(perms.switches && perms.switches.write);
       switchAdminWrite = !!(perms.switchadmin && perms.switchadmin.write);

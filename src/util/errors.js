@@ -10,4 +10,11 @@ function getErrorMessage(err, fallback = 'Unknown error') {
   }
 }
 
-module.exports = { getErrorMessage };
+// First validation message from a ZodError. Zod 4 exposes .issues (the old
+// .errors alias is gone), so never index .errors directly.
+function zodMessage(err, fallback = 'Invalid request') {
+  const issues = (err && (err.issues || err.errors)) || [];
+  return (issues[0] && issues[0].message) || fallback;
+}
+
+module.exports = { getErrorMessage, zodMessage };

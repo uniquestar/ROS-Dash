@@ -13,9 +13,14 @@ const http    = require('http');
 const { Server } = require('socket.io');
 const { z } = require('zod');
 const { RouterOsInputError, sanitizeRosId, sanitizePeerName, sanitizeAddressListName, sanitizeInterfaceName, sanitizeComment } = require('./util/routerosSanitize');
-const { getErrorMessage } = require('./util/errors');
+const { getErrorMessage, zodMessage } = require('./util/errors');
 const { validatePassword } = require('./util/passwordPolicy');
 const { initOuiCache, lookupVendor } = require('./util/oui');
+
+// Safety net: a stray rejection in a route handler must not take the whole dashboard down
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] unhandled rejection:', getErrorMessage(reason));
+});
 
 const ROS                  = require('./routeros/client');
 const { fetchInterfaces }  = require('./collectors/interfaces');
@@ -215,7 +220,7 @@ app.post('/api/dhcp/make-static', csrfProtection, requireAuth, requirePageWrite(
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
-      return res.status(400).json({ error: e.errors[0].message });
+      return res.status(400).json({ error: zodMessage(e) });
     }
     if (e instanceof RouterOsInputError) {
       return res.status(400).json({ error: e.message });
@@ -241,7 +246,7 @@ app.post('/api/dhcp/remove-static', csrfProtection, requireAuth, requirePageWrit
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
-      return res.status(400).json({ error: e.errors[0].message });
+      return res.status(400).json({ error: zodMessage(e) });
     }
     if (e instanceof RouterOsInputError) {
       return res.status(400).json({ error: e.message });
@@ -328,7 +333,7 @@ app.post('/api/dhcp/add-static', csrfProtection, requireAuth, requirePageWrite('
     auditLog(req, 'dhcp.add-static', ip, safeServer, 'ok');
     res.json({ ok: true });
   } catch (e) {
-    if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors[0].message });
+    if (e instanceof z.ZodError) return res.status(400).json({ error: zodMessage(e) });
     if (e instanceof RouterOsInputError) return res.status(400).json({ error: e.message });
     const msg = getErrorMessage(e);
     console.error('[dhcp] add-static failed:', msg);
@@ -349,7 +354,7 @@ app.post('/api/interfaces/admin', csrfProtection, requireAuth, requirePageWrite(
     res.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {
-      return res.status(400).json({ error: e.errors[0].message });
+      return res.status(400).json({ error: zodMessage(e) });
     }
     if (e instanceof RouterOsInputError) {
       return res.status(400).json({ error: e.message });
@@ -497,7 +502,7 @@ app.post('/api/wireguard/peers', csrfProtection, requireAuth, requirePageWrite('
 
   } catch(e) {
     if (e instanceof z.ZodError) {
-      return res.status(400).json({ error: e.errors[0].message });
+      return res.status(400).json({ error: zodMessage(e) });
     }
     if (e instanceof RouterOsInputError) {
       return res.status(400).json({ error: e.message });
@@ -553,7 +558,7 @@ app.patch('/api/wireguard/peers/:id', csrfProtection, requireAuth, requirePageWr
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
-      return res.status(400).json({ error: e.errors[0].message });
+      return res.status(400).json({ error: zodMessage(e) });
     }
     if (e instanceof RouterOsInputError) {
       return res.status(400).json({ error: e.message });
@@ -564,16 +569,23 @@ app.patch('/api/wireguard/peers/:id', csrfProtection, requireAuth, requirePageWr
   }
 });
 
-// Router backup download
-app.get('/api/system/backup', requireAuth, requirePageRead('dashboard'), async (req, res) => {
+// Router backup download — admin only: the file holds router secrets and WireGuard keys
+app.get('/api/system/backup', requireAuth, requireAdmin, async (req, res) => {
   const { Client } = require('ssh2');
-  const backupName = 'ros-dash-backup';
+  const { buildHostVerifier } = require('./util/sshHostKey');
+  // Unique per request so concurrent downloads can't read or delete each other's file
+  const backupName = 'ros-dash-backup-' + Date.now() + '-' + require('crypto').randomBytes(4).toString('hex');
   const backupFile = backupName + '.backup';
+  const backupPassword = process.env.BACKUP_PASSWORD || '';
+  let saved = false;
 
   try {
-    // Step 1 — trigger backup save via RouterOS API
-    await ros.write('/system/backup/save', ['=name=' + backupName, '=dont-encrypt=yes']);
-    console.log('[backup] backup saved on router');
+    // Step 1 — trigger backup save via RouterOS API (encrypted when BACKUP_PASSWORD is set)
+    await ros.write('/system/backup/save', backupPassword
+      ? ['=name=' + backupName, '=password=' + backupPassword]
+      : ['=name=' + backupName, '=dont-encrypt=yes']);
+    saved = true;
+    console.log('[backup] backup saved on router' + (backupPassword ? ' (encrypted)' : ' (unencrypted)'));
 
     // Step 2 — give router a moment to write the file
     await new Promise(r => setTimeout(r, 2000));
@@ -597,17 +609,11 @@ app.get('/api/system/backup', requireAuth, requirePageRead('dashboard'), async (
         port:     22,
         username: process.env.ROUTER_USER,
         password: process.env.ROUTER_PASS,
+        hostVerifier: buildHostVerifier(process.env.ROUTER_SSH_HOSTKEY_SHA256),
       });
     });
 
-    // Step 4 — clean up file on router
-    try {
-      await ros.write('/file/remove', ['=numbers=' + backupFile]);
-    } catch(e) {
-      console.warn('[backup] cleanup failed (non-fatal):', getErrorMessage(e));
-    }
-
-    // Step 5 — stream to browser
+    // Step 4 — stream to browser
     const date = new Date().toISOString().slice(0, 10);
     const filename = 'ros-dash-backup-' + date + '.backup';
     res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
@@ -615,11 +621,22 @@ app.get('/api/system/backup', requireAuth, requirePageRead('dashboard'), async (
     res.setHeader('Content-Length', fileBuffer.length);
     res.send(fileBuffer);
     console.log('[backup] sent ' + fileBuffer.length + ' bytes to client');
+    auditLog(req, 'system.backup', process.env.ROUTER_HOST || 'router', (backupPassword ? 'encrypted' : 'unencrypted') + ' bytes=' + fileBuffer.length, 'ok');
 
   } catch(e) {
     const msg = getErrorMessage(e);
     console.error('[backup] failed:', msg);
+    auditLog(req, 'system.backup', process.env.ROUTER_HOST || 'router', msg, 'error');
     res.status(500).json({ error: msg });
+  } finally {
+    // Never leave a backup lying on the router, even when the download fails
+    if (saved) {
+      try {
+        await ros.write('/file/remove', ['=numbers=' + backupFile]);
+      } catch(e) {
+        console.warn('[backup] cleanup failed (non-fatal):', getErrorMessage(e));
+      }
+    }
   }
 });
 
@@ -656,7 +673,7 @@ app.post('/api/switches/:name/port-vlan', csrfProtection, requireAuth, requireSw
     res.json({ ok: true, result });
   } catch (e) {
     if (e instanceof z.ZodError) {
-      return res.status(400).json({ error: e.errors[0].message });
+      return res.status(400).json({ error: zodMessage(e) });
     }
     if (e && e.statusCode) {
       return res.status(e.statusCode).json({ error: getErrorMessage(e) });
@@ -675,7 +692,7 @@ app.post('/api/switches/:name/port-admin', csrfProtection, requireAuth, requireS
     res.json({ ok: true, result });
   } catch (e) {
     if (e instanceof z.ZodError) {
-      return res.status(400).json({ error: e.errors[0].message });
+      return res.status(400).json({ error: zodMessage(e) });
     }
     if (e && e.statusCode) {
       return res.status(e.statusCode).json({ error: getErrorMessage(e) });
@@ -735,7 +752,7 @@ app.post('/api/switch-permissions', csrfProtection, requireAuth, requirePageWrit
     auditLog(req, 'perm.switch', username + '/' + switchName, canWrite ? 'grant' : 'revoke', 'ok');
     res.json({ ok: true });
   } catch (e) {
-    if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors[0].message });
+    if (e instanceof z.ZodError) return res.status(400).json({ error: zodMessage(e) });
     const msg = getErrorMessage(e);
     console.error('[switch-permissions] set failed:', msg);
     res.status(500).json({ error: msg });
@@ -830,7 +847,7 @@ app.post('/api/users', csrfProtection, requireAuth, requirePageWrite('users'), (
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
-      return res.status(400).json({ error: e.errors[0].message });
+      return res.status(400).json({ error: zodMessage(e) });
     }
     const msg = getErrorMessage(e);
     console.error('[users] create user failed:', msg);
@@ -849,7 +866,7 @@ app.patch('/api/users/:username', csrfProtection, requireAuth, requirePageWrite(
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
-      return res.status(400).json({ error: e.errors[0].message });
+      return res.status(400).json({ error: zodMessage(e) });
     }
     const msg = getErrorMessage(e);
     console.error('[users] update password failed:', msg);
@@ -876,7 +893,7 @@ app.post('/api/users/:username/force-password-change', csrfProtection, requireAu
     res.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {
-      return res.status(400).json({ error: e.errors[0].message });
+      return res.status(400).json({ error: zodMessage(e) });
     }
     const msg = getErrorMessage(e);
     console.error('[users] force password change failed:', msg);
@@ -903,7 +920,7 @@ app.post('/api/me/password', csrfProtection, requireAuth, (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {
-      return res.status(400).json({ error: e.errors[0].message });
+      return res.status(400).json({ error: zodMessage(e) });
     }
     const msg = getErrorMessage(e);
     console.error('[users] self password change failed:', msg);
@@ -927,7 +944,7 @@ app.post('/api/permissions', csrfProtection, requireAuth, requirePageWrite('user
     res.json({ ok: true });
   } catch(e) {
     if (e instanceof z.ZodError) {
-      return res.status(400).json({ error: e.errors[0].message });
+      return res.status(400).json({ error: zodMessage(e) });
     }
     const msg = getErrorMessage(e);
     console.error('[permissions] set permission failed:', msg);
