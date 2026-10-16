@@ -56,4 +56,37 @@ function nextFreeIp(subnet, used, reserved = []) {
   return null;
 }
 
-module.exports = { hostsFromAddressField, usedPeerIps, nextFreeIp };
+function isTrue(v) {
+  return v === true || v === 'true';
+}
+
+// Default split-tunnel AllowedIPs for new peers: the WG subnet first, then every
+// static private (RFC1918) network configured on the router's other interfaces.
+// Dynamic addresses (e.g. a DHCP-assigned WAN behind an ISP router) are skipped.
+// A non-empty `override` (comma-separated, from WG_SPLIT_ROUTES) wins outright.
+function defaultSplitRoutes(addresses, wgSubnet, wgInterface, override) {
+  const fromEnv = String(override || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (fromEnv.length) return fromEnv;
+
+  const routes = [];
+  const add = (cidr) => { if (cidr && !routes.includes(cidr)) routes.push(cidr); };
+  try {
+    add(ipaddr.IPv4.networkAddressFromCIDR(wgSubnet).toString() + '/' + String(wgSubnet).split('/')[1]);
+  } catch (_) {}
+
+  for (const a of (addresses || [])) {
+    if (a.interface === wgInterface) continue;
+    if (isTrue(a.dynamic) || isTrue(a.disabled) || isTrue(a.invalid)) continue;
+    let net;
+    try {
+      net = ipaddr.IPv4.networkAddressFromCIDR(a.address || '');
+    } catch (_) {
+      continue;
+    }
+    if (net.range() !== 'private') continue;
+    add(net.toString() + '/' + String(a.address).split('/')[1]);
+  }
+  return routes;
+}
+
+module.exports = { hostsFromAddressField, usedPeerIps, nextFreeIp, defaultSplitRoutes };

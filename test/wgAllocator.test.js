@@ -51,3 +51,29 @@ test('nextFreeIp tolerates a host-bits subnet and rejects junk', () => {
   assert.equal(nextFreeIp('not-a-subnet', new Set()), null);
   assert.equal(nextFreeIp('192.168.168.0/31', new Set()), null);
 });
+
+const { defaultSplitRoutes } = require('../src/util/wgAllocator');
+
+test('defaultSplitRoutes lists the WG subnet then static private LAN networks', () => {
+  const addrs = [
+    { address: '192.168.168.1/24', interface: 'WireGuard' },
+    { address: '10.100.0.1/16',    interface: 'bridge-lan' },
+    { address: '10.101.34.1/24',   interface: 'vlan34' },
+    { address: '81.2.3.4/29',      interface: 'WAN1' },                    // public: skipped
+    { address: '192.168.1.50/24',  interface: 'WAN2', dynamic: 'true' },   // DHCP WAN: skipped
+    { address: '172.16.5.1/24',    interface: 'old', disabled: 'true' },   // disabled: skipped
+    { address: '10.100.0.2/16',    interface: 'bridge-lan' },              // duplicate network
+  ];
+  assert.deepEqual(defaultSplitRoutes(addrs, '192.168.168.0/24', 'WireGuard'),
+    ['192.168.168.0/24', '10.100.0.0/16', '10.101.34.0/24']);
+});
+
+test('defaultSplitRoutes uses the WG_SPLIT_ROUTES override when set', () => {
+  assert.deepEqual(defaultSplitRoutes([{ address: '10.0.0.1/8', interface: 'lan' }], '192.168.168.0/24', 'WireGuard', ' 10.9.0.0/16 , 192.168.168.0/24 '),
+    ['10.9.0.0/16', '192.168.168.0/24']);
+});
+
+test('defaultSplitRoutes copes with no router addresses or junk', () => {
+  assert.deepEqual(defaultSplitRoutes(null, '192.168.168.0/24', 'WireGuard'), ['192.168.168.0/24']);
+  assert.deepEqual(defaultSplitRoutes([{ address: 'nope' }], 'bad', 'WireGuard'), []);
+});

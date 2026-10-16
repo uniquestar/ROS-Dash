@@ -154,6 +154,7 @@ vim .env
 - `WG_ALLOWED_SUBNET` — allowed subnet used for peer address validation and next-free-IP suggestions when adding a peer (default `192.168.168.0/24`)
 - `WG_CLIENT_PREFIX` — client address prefix length (default `24`)
 - `WG_CLIENT_DNS` — DNS server pushed to client configs (default `192.168.168.1`)
+- `WG_SPLIT_ROUTES` — optional comma-separated networks pre-filled when Split Tunnel is chosen for a new peer. Unset means the WG subnet plus the router's static private (RFC1918) LAN networks
 
 **Optional — router backup (admin-only download):**
 - `ROUTER_SSH_HOSTKEY_SHA256` — pins the router's SSH host key for the backup download. Get it with `ssh-keyscan -t ed25519 <router> | ssh-keygen -lf -`. Unset means the key isn't verified and a warning is logged.
@@ -369,6 +370,7 @@ WG_SERVER_LISTEN_PORT=13231
 WG_ALLOWED_SUBNET=192.168.168.0/24
 WG_CLIENT_PREFIX=24
 WG_CLIENT_DNS=192.168.168.1
+WG_SPLIT_ROUTES=             # Optional: default split-tunnel networks
 
 # Polling intervals (ms)
 CONNS_POLL_MS=3000

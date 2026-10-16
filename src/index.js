@@ -369,7 +369,7 @@ app.post('/api/interfaces/admin', csrfProtection, requireAuth, requirePageWrite(
 // ── WireGuard Management ──────────────────────────────────────────────────
 
 const { generateKeypair, generatePsk, buildConfig } = require('./util/wireguard');
-const { usedPeerIps, nextFreeIp } = require('./util/wgAllocator');
+const { usedPeerIps, nextFreeIp, defaultSplitRoutes } = require('./util/wgAllocator');
 
 // Get all WireGuard user peers with address list membership
 app.get('/api/wireguard/peers', requireAuth, requirePageRead('vpn'), async (req, res) => {
@@ -439,7 +439,7 @@ app.get('/api/wireguard/used-ips', requireAuth, requirePageRead('vpn'), async (r
   }
 });
 
-// Suggest the next free tunnel address for a new peer
+// Suggest the next free tunnel address and default split-tunnel routes for a new peer
 app.get('/api/wireguard/next-ip', requireAuth, requirePageRead('vpn'), async (req, res) => {
   try {
     const [peers, addrs] = await Promise.all([
@@ -452,8 +452,9 @@ app.get('/api/wireguard/next-ip', requireAuth, requirePageRead('vpn'), async (re
       .map(a => (a.address || '').split('/')[0])
       .concat(WG_CLIENT_DNS);
     const ip = nextFreeIp(WG_ALLOWED_SUBNET, usedPeerIps(peers), reserved);
-    if (!ip) return res.status(409).json({ error: 'No free addresses left in ' + WG_ALLOWED_SUBNET, subnet: WG_ALLOWED_SUBNET });
-    res.json({ ip, subnet: WG_ALLOWED_SUBNET });
+    const splitRoutes = defaultSplitRoutes(addrs, WG_ALLOWED_SUBNET, WG_INTERFACE, process.env.WG_SPLIT_ROUTES);
+    if (!ip) return res.status(409).json({ error: 'No free addresses left in ' + WG_ALLOWED_SUBNET, subnet: WG_ALLOWED_SUBNET, splitRoutes });
+    res.json({ ip, subnet: WG_ALLOWED_SUBNET, splitRoutes });
   } catch(e) {
     res.status(500).json({ error: getErrorMessage(e) });
   }

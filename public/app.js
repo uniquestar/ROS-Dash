@@ -3263,6 +3263,7 @@ function renderVisualiser(switchName, module) {
   var _wgLists    = [];
   var _wanIps     = [];
   var _wgSubnet   = '192.168.168.0/24'; // replaced by the server's WG_ALLOWED_SUBNET on first next-ip lookup
+  var _wgSplitRoutes = [];                // default split-tunnel networks from the server
   var _editPeer   = null;
   var _configName = '';
   var vpnCanWrite = false;
@@ -3281,8 +3282,9 @@ function renderVisualiser(switchName, module) {
       fetch('/api/wireguard/peers',        { credentials: 'include' }).then(r => r.json()),
       fetch('/api/wireguard/address-lists', { credentials: 'include' }).then(r => r.json()),
     ]).then(function(results){
-      _wgPeers = results[0] || [];
-      _wgLists = results[1] || [];
+      // A failed call returns {error}, not an array; keep Add Peer usable during router hiccups
+      _wgPeers = Array.isArray(results[0]) ? results[0] : [];
+      _wgLists = Array.isArray(results[1]) ? results[1] : [];
       // Re-render tiles with edit buttons
       renderWgTiles();
     }).catch(function(e){ console.error('[wg]', e); });
@@ -3431,6 +3433,12 @@ function renderVisualiser(switchName, module) {
       .then(function(r){ return r.json(); })
       .then(function(data){
         if (data.subnet) _wgSubnet = data.subnet;
+        if (Array.isArray(data.splitRoutes)) {
+          _wgSplitRoutes = data.splitRoutes;
+          var splitEl = $('wgcSplitNets');
+          if (splitEl && _wgSplitRoutes.length) splitEl.placeholder = _wgSplitRoutes.join(', ');
+          fillSplitDefaults();
+        }
         if (!ipEl) return;
         ipEl.placeholder = _wgSubnet.replace(/\.0\/\d+$/, '.x');
         if (data.ip && !ipEl.value) ipEl.value = data.ip;
@@ -3454,11 +3462,21 @@ function renderVisualiser(switchName, module) {
     if (modal) modal.style.display = 'none';
   }
 
+  // Pre-fill split-tunnel networks when Split is selected and the field is still empty
+  function fillSplitDefaults() {
+    var splitEl = $('wgcSplitNets');
+    var split = document.querySelector('input[name="wgcTunnel"][value="split"]');
+    if (splitEl && split && split.checked && !splitEl.value.trim() && _wgSplitRoutes.length) {
+      splitEl.value = _wgSplitRoutes.join(', ');
+    }
+  }
+
   // Tunnel mode toggle
   document.querySelectorAll('input[name="wgcTunnel"]').forEach(function(r){
     r.addEventListener('change', function(){
       var splitWrap = $('wgcSplitWrap');
       if (splitWrap) splitWrap.style.display = r.value === 'split' && r.checked ? '' : 'none';
+      fillSplitDefaults();
     });
   });
 
