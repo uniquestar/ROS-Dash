@@ -19,3 +19,7 @@ ros-dash.db-wal
 ros-dash.db-shm
 
 TODOs.md
+
+# Instance config / migrated data - contain secrets
+switches-ie.json
+users.json.migrated
