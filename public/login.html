@@ -151,8 +151,14 @@
       })
       .catch(err => console.error('Failed to fetch CSRF token:', err));
 
-    if (new URLSearchParams(location.search).get('error')) {
-      document.getElementById('err').classList.add('show');
+    var params = new URLSearchParams(location.search);
+    if (params.get('error')) {
+      var errEl = document.getElementById('err');
+      if (params.get('error') === 'locked') {
+        var mins = parseInt(params.get('retry'), 10) || 15;
+        errEl.textContent = 'Too many failed attempts. Try again in ' + mins + ' minute' + (mins === 1 ? '' : 's') + '.';
+      }
+      errEl.classList.add('show');
     }
   </script>
 </body>

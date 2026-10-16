@@ -16,6 +16,7 @@ const { RouterOsInputError, sanitizeRosId, sanitizePeerName, sanitizeAddressList
 const { getErrorMessage, zodMessage } = require('./util/errors');
 const { validatePassword } = require('./util/passwordPolicy');
 const { initOuiCache, lookupVendor } = require('./util/oui');
+const { createLoginLimiter } = require('./util/loginLimiter');
 
 // Safety net: a stray rejection in a route handler must not take the whole dashboard down
 process.on('unhandledRejection', (reason) => {
@@ -50,13 +51,19 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
 // Session middleware for CSRF token storage
+const COOKIE_SECURE = (process.env.COOKIE_SECURE || 'false').toLowerCase() === 'true';
 const session = require('express-session');
 app.use(session({
   secret: process.env.DASH_SECRET,
   resave: false,
-  saveUninitialized: true,
-  cookie: { secure: false, httpOnly: true, sameSite: 'strict', maxAge: 24*60*60*1000 },
+  saveUninitialized: false, // only create sessions once csurf stores a secret
+  cookie: { secure: COOKIE_SECURE, httpOnly: true, sameSite: 'strict', maxAge: 24*60*60*1000 },
 }));
+
+// Auth cookie: set COOKIE_SECURE=true when the dashboard is served over HTTPS
+function setTokenCookie(res, token) {
+  res.setHeader('Set-Cookie', `rosdash_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800` + (COOKIE_SECURE ? '; Secure' : ''));
+}
 
 // CSRF protection middleware (will be applied selectively)
 const csrf = require('csurf');
@@ -73,13 +80,16 @@ const AUDIT_RETENTION_DAYS = Math.max(0, parseInt(process.env.AUDIT_RETENTION_DA
 const AUDIT_RETENTION_MAX_ROWS = Math.max(0, parseInt(process.env.AUDIT_RETENTION_MAX_ROWS || '0', 10) || 0);
 const AUDIT_RETENTION_CLEANUP_MS = Math.max(60000, parseInt(process.env.AUDIT_RETENTION_CLEANUP_MS || '21600000', 10) || 21600000);
 
+// Host octet 1-254 only (no network, broadcast or out-of-range values like .999)
+const WG_HOST_OCTET = '(?:25[0-4]|2[0-4]\\d|1\\d\\d|[1-9]\\d?)';
+
 function buildWgAllowedAddressRegex(cidr) {
   const m = String(cidr || '').match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.0\/24$/);
   if (!m) {
     console.warn('[wireguard] WG_ALLOWED_SUBNET invalid, falling back to 192.168.168.0/24');
-    return /^192\.168\.168\.\d{1,3}\/32$/;
+    return new RegExp('^192\\.168\\.168\\.' + WG_HOST_OCTET + '\\/32$');
   }
-  return new RegExp('^' + m[1] + '\\.' + m[2] + '\\.' + m[3] + '\\.\\d{1,3}\\/32$');
+  return new RegExp('^' + m[1] + '\\.' + m[2] + '\\.' + m[3] + '\\.' + WG_HOST_OCTET + '\\/32$');
 }
 
 const WG_ALLOWED_ADDRESS_REGEX = buildWgAllowedAddressRegex(WG_ALLOWED_SUBNET);
@@ -107,24 +117,33 @@ const dhcpAddStaticSchema = z.object({
 });
 
 // WireGuard schemas
+const { isIpv4CidrList, normalizeCidrList } = require('./util/wireguard');
+const WG_ADDRESS_MSG = `Allowed address must be in ${WG_ALLOWED_SUBNET} with /32 CIDR`;
+
 const wireguardCreatePeerSchema = z.object({
   name: z.string().min(1, 'Name is required'),
-  allowedAddress: z.string().regex(WG_ALLOWED_ADDRESS_REGEX, `Allowed address must be in ${WG_ALLOWED_SUBNET} with /32 CIDR`),
-  clientEndpoint: z.string().regex(/^[\w\-.]+(:\d+)?$/, 'Invalid client endpoint format'),
+  allowedAddress: z.string().regex(WG_ALLOWED_ADDRESS_REGEX, WG_ADDRESS_MSG),
+  clientEndpoint: z.string().max(253, 'Client endpoint too long').regex(/^[\w\-.]+(:\d{1,5})?$/, 'Invalid client endpoint format'),
   addressList: z.string().optional(),
-  clientAllowedAddress: z.string().optional(),
+  // Ends up as AllowedIPs in the client .conf: strictly IPv4 CIDRs, no newlines
+  clientAllowedAddress: z.string().optional()
+    .refine(v => !v || isIpv4CidrList(v), 'Client allowed addresses must be comma separated IPv4 networks, e.g. 10.0.0.0/24')
+    .transform(v => (v ? normalizeCidrList(v) : v)),
 });
 
 const wireguardUpdatePeerSchema = z.object({
   disabled: z.boolean().optional(),
   addressList: z.string().optional(),
   currentList: z.string().optional(),
-  allowedAddress: z.string().optional(),
+  // Written into WG- firewall address lists, so it must be a peer address in the WG subnet
+  allowedAddress: z.string().optional()
+    .refine(v => !v || WG_ALLOWED_ADDRESS_REGEX.test(v.includes('/') ? v : v + '/32'), WG_ADDRESS_MSG),
 });
 
 // User schemas
 const userCreateSchema = z.object({
-  username: z.string().min(1, 'Username is required').max(50, 'Username too long'),
+  username: z.string().min(1, 'Username is required').max(50, 'Username too long')
+    .regex(/^[A-Za-z0-9._@-]+$/, 'Username may only contain letters, numbers and . _ @ -'),
   password: z.string().min(1, 'Password is required').superRefine((val, ctx) => {
     const issues = validatePassword(val);
     for (const issue of issues) ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue });
@@ -187,14 +206,24 @@ app.get('/api/csrf-token', csrfProtection, (req, res) => {
 });
 
 // Login route — public, no CSRF check required for initial login
+const loginLimiter = createLoginLimiter();
+setInterval(() => loginLimiter.prune(), 10 * 60 * 1000).unref();
+
 app.post('/login', (req, res) => {
   const { username, password } = req.body;
-const authedUser = validateUser(username, password);
+  const ip = req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
+  const wait = loginLimiter.retryAfter(ip, username);
+  if (wait) {
+    console.warn('[auth] login locked for', String(username || '').slice(0, 50), 'from', ip);
+    return res.redirect('/login.html?error=locked&retry=' + Math.ceil(wait / 60000));
+  }
+  const authedUser = validateUser(username, password);
   if (authedUser) {
-    const token = makeToken(authedUser);
-    res.setHeader('Set-Cookie', `rosdash_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);
+    loginLimiter.recordSuccess(ip, username);
+    setTokenCookie(res, makeToken(authedUser));
     res.redirect('/');
   } else {
+    loginLimiter.recordFailure(ip, username);
     res.redirect('/login.html?error=1');
   }
 });
@@ -789,7 +818,7 @@ app.get('/api/me', requireAuth, (req, res) => {
 
 // Logout route
 app.get('/logout', (_req, res) => {
-  res.setHeader('Set-Cookie', 'rosdash_token=; HttpOnly; Path=/; Max-Age=0');
+  res.setHeader('Set-Cookie', 'rosdash_token=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' + (COOKIE_SECURE ? '; Secure' : ''));
   res.redirect('/login.html');
 });
 
@@ -936,8 +965,7 @@ app.post('/api/me/password', csrfProtection, requireAuth, (req, res) => {
     updatePassword(tokenUser.username, hashPassword(newPassword), { mustChangePassword: false });
     auditLog(req, 'me.password', tokenUser.username, null, 'ok');
     const authedUser = validateUser(tokenUser.username, newPassword);
-    const token = makeToken(authedUser);
-    res.setHeader('Set-Cookie', `rosdash_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);
+    setTokenCookie(res, makeToken(authedUser));
     res.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {
@@ -1101,7 +1129,7 @@ app.get('/api/audit-log/export.csv', requireAuth, requirePageRead('auditlog'), (
 });
 
 // Inventory — update notes/tags for a device
-app.post('/api/inventory/:mac', requireAuth, requirePageWrite('inventory'), (req, res) => {
+app.post('/api/inventory/:mac', csrfProtection, requireAuth, requirePageWrite('inventory'), (req, res) => {
   try {
     const mac = req.params.mac;
     const { notes, tags } = req.body;

@@ -114,12 +114,15 @@ ROS-Dash includes built-in authentication, CSRF protection, and is suitable for 
 - **CSRF protection** — all state-changing endpoints require valid CSRF tokens; same-site request forgery attacks are prevented
 - **Input validation** — all write endpoints validate request bodies with zod schemas (DHCP, WireGuard, users, permissions); malformed requests rejected with 400 errors
 - **Hardened secrets** — `DASH_SECRET` is required at startup (no weak fallback); session tokens use HMAC-SHA256 signing
-- **Session validation** — 8-hour token expiry, automatic invalidation on server restart, per-page and per-switch access control
+- **Session validation** — 1-hour token expiry, automatic invalidation on server restart, per-page and per-switch access control
+- **Live access checks** — users and permissions are re-checked on every request, so deleting a user, changing permissions or resetting a password takes effect immediately; forced password changes are enforced server-side
+- **Login brute-force protection** — 5 failed attempts per username and IP (or 20 per IP) locks logins for 15 minutes
+- **WireGuard config safety** — client config values are strictly validated, so nothing can inject extra directives (e.g. `PostUp`) into generated `.conf` files
 - **Protected WebSocket** — unauthenticated socket connections rejected at handshake
 - **Consistent error responses** — shared error formatting utility prevents malformed `500` payloads and `[object Object]` log output
 
 **Recommended setup:**
-- Deploy behind Nginx Proxy Manager or similar with a valid SSL certificate
+- Deploy behind Nginx Proxy Manager or similar with a valid SSL certificate, and set `COOKIE_SECURE=true`
 - Set `DASH_SECRET` to a strong random string (≥32 characters) in your `.env`
 - Use a dedicated API user on the router with only the permissions it needs (see RouterOS Setup below)
 - Keep `.env`, `switches.json`, and `ros-dash.db` outside the Docker image, mounted as volumes
@@ -155,6 +158,9 @@ vim .env
 - `WG_CLIENT_PREFIX` — client address prefix length (default `24`)
 - `WG_CLIENT_DNS` — DNS server pushed to client configs (default `192.168.168.1`)
 - `WG_SPLIT_ROUTES` — optional comma-separated networks pre-filled when Split Tunnel is chosen for a new peer. Unset means the WG subnet plus the router's static private (RFC1918) LAN networks
+
+**Optional — HTTPS:**
+- `COOKIE_SECURE` — set to `true` when the dashboard is served over HTTPS (e.g. behind a TLS reverse proxy) so auth cookies are marked `Secure`. Default `false`.
 
 **Optional — router backup (admin-only download):**
 - `ROUTER_SSH_HOSTKEY_SHA256` — pins the router's SSH host key for the backup download. Get it with `ssh-keyscan -t ed25519 <router> | ssh-keygen -lf -`. Unset means the key isn't verified and a warning is logged.

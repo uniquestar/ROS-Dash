@@ -2323,6 +2323,18 @@ sendNotif = function(title, body, tag){
     return me && me.permissions && me.permissions.users && me.permissions.users.write;
   }
 
+  // User tile buttons: usernames travel as data attributes, never inside inline JS,
+  // so a crafted username can't execute script
+  document.addEventListener('click', function(e){
+    var btn = e.target.closest ? e.target.closest('[data-user-action]') : null;
+    if (!btn) return;
+    var username = btn.getAttribute('data-username');
+    var action = btn.getAttribute('data-user-action');
+    if (action === 'chgpwd' && window._chgPwd) window._chgPwd(username);
+    else if (action === 'togglereset' && window._togglePwdReset) window._togglePwdReset(username, btn.getAttribute('data-force') === 'true');
+    else if (action === 'delete' && window._delUser) window._delUser(username);
+  });
+
   window.loadUsers = function() {
     Promise.all([
       fetch('/api/users', { credentials: 'include' }).then(function(r){ return r.json(); }),
@@ -2367,9 +2379,9 @@ sendNotif = function(title, body, tag){
 
       var actions = write
         ? '<div style="display:flex;gap:.4rem;margin-top:.75rem">'+
-            '<button onclick="window._chgPwd(\''+esc(u.username)+'\')" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Change Password</button>'+
-            '<button onclick="window._togglePwdReset(\''+esc(u.username)+'\','+(forceFlag?'false':'true')+')" style="background:transparent;border:1px solid '+(forceFlag?'rgba(99,102,241,.45)':'var(--border)')+';color:'+(forceFlag?'#a5b4fc':'var(--text-muted)')+';border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">'+(forceFlag?'Clear Password Flag':'Require Password Change')+'</button>'+
-            '<button onclick="window._delUser(\''+esc(u.username)+'\')" style="background:transparent;border:1px solid rgba(248,113,113,.3);color:#f87171;border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Delete User</button>'+
+            '<button data-user-action="chgpwd" data-username="'+esc(u.username)+'" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Change Password</button>'+
+            '<button data-user-action="togglereset" data-username="'+esc(u.username)+'" data-force="'+(forceFlag?'false':'true')+'" style="background:transparent;border:1px solid '+(forceFlag?'rgba(99,102,241,.45)':'var(--border)')+';color:'+(forceFlag?'#a5b4fc':'var(--text-muted)')+';border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">'+(forceFlag?'Clear Password Flag':'Require Password Change')+'</button>'+
+            '<button data-user-action="delete" data-username="'+esc(u.username)+'" style="background:transparent;border:1px solid rgba(248,113,113,.3);color:#f87171;border-radius:4px;padding:.2rem .5rem;font-size:.72rem;cursor:pointer">Delete User</button>'+
           '</div>'
         : '';
 

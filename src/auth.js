@@ -35,10 +35,18 @@ function validateUser(username, password) {
   return null;
 }
 
+// Short fingerprint of the stored password hash: changing or resetting a
+// password invalidates every token issued before the change.
+function passwordFingerprint(storedHash) {
+  return crypto.createHash('sha256').update(String(storedHash || '')).digest('hex').slice(0, 16);
+}
+
 function makeToken(user) {
   const expiry  = Date.now() + SESSION_TTL;
   const gen     = getTokenGeneration();
-  const payload = Buffer.from(JSON.stringify({ expiry, user, gen })).toString('base64');
+  const dbUser  = user && user.id != null ? getUser(user.username) : null;
+  const pwf     = dbUser ? passwordFingerprint(dbUser.password) : null;
+  const payload = Buffer.from(JSON.stringify({ expiry, user, gen, pwf })).toString('base64');
   const sig     = crypto.createHmac('sha256', DASH_SECRET).update(payload).digest('hex');
   return `${payload}.${sig}`;
 }
@@ -48,7 +56,8 @@ function verifyToken(token) {
   const [payload, sig] = token.split('.');
   if (!payload || !sig) return null;
   const expected = crypto.createHmac('sha256', DASH_SECRET).update(payload).digest('hex');
-  if (sig !== expected) return null;
+  if (sig.length !== expected.length ||
+      !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
   try {
     const decoded = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
     if (Date.now() >= decoded.expiry) return null;
@@ -66,10 +75,34 @@ function getTokenFromRequest(req) {
   return null;
 }
 
+// Resolve the token to the user's *current* state. Database users are re-read on
+// every request, so deleting a user, changing permissions or resetting a password
+// takes effect immediately instead of when the token expires.
+function resolveUser(decoded) {
+  if (!decoded || !decoded.user) return null;
+  const tokenUser = decoded.user;
+  if (tokenUser.id == null) return tokenUser; // .env fallback user: fixed permissions
+  const dbUser = getUser(tokenUser.username);
+  if (!dbUser || dbUser.id !== tokenUser.id) return null;
+  if (decoded.pwf !== passwordFingerprint(dbUser.password)) return null;
+  return {
+    username: dbUser.username,
+    id: dbUser.id,
+    permissions: getUserPermissions(dbUser.id),
+    mustChangePassword: dbUser.must_change_password === 1,
+  };
+}
+
 function getTokenUser(req) {
-  const token   = getTokenFromRequest(req);
-  const decoded = verifyToken(token);
-  return decoded ? decoded.user : null;
+  return resolveUser(verifyToken(getTokenFromRequest(req)));
+}
+
+// Until a forced password change is done, only /api/me, /api/me/password and
+// logout work; every page/switch permission check refuses.
+function passwordChangeBlock(user, res) {
+  if (!user.mustChangePassword) return false;
+  res.status(403).json({ error: 'Password change required', mustChangePassword: true });
+  return true;
 }
 
 /**
@@ -77,8 +110,7 @@ function getTokenUser(req) {
  * Redirects unauthenticated users to login to preserve current UX.
  */
 function requireAuth(req, res, next) {
-  const token = getTokenFromRequest(req);
-  if (verifyToken(token)) return next();
+  if (getTokenUser(req)) return next();
   res.redirect('/login.html');
 }
 
@@ -89,7 +121,7 @@ function requireAuthSocket(socket, next) {
   const cookie = socket.handshake.headers.cookie || '';
   const match  = cookie.match(/(?:^|;\s*)rosdash_token=([^;]+)/);
   const token  = match ? match[1] : null;
-  if (verifyToken(token)) return next();
+  if (resolveUser(verifyToken(token))) return next();
   next(new Error('Unauthorised'));
 }
 
@@ -100,6 +132,7 @@ function requirePageRead(pageKey) {
   return function(req, res, next) {
     const user = getTokenUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorised' });
+    if (passwordChangeBlock(user, res)) return;
     const perms = user.permissions || {};
     if (perms[pageKey] && perms[pageKey].read) return next();
     res.status(403).json({ error: 'Forbidden' });
@@ -113,6 +146,7 @@ function requirePageWrite(pageKey) {
   return function(req, res, next) {
     const user = getTokenUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorised' });
+    if (passwordChangeBlock(user, res)) return;
     const perms = user.permissions || {};
     if (perms[pageKey] && perms[pageKey].write) return next();
     res.status(403).json({ error: 'Forbidden' });
@@ -121,14 +155,15 @@ function requirePageWrite(pageKey) {
 
 /**
  * Per-switch write authorization middleware factory.
- * Grants access to: .env users (id=null), users with switchadmin.write, or users with an explicit per-switch grant.
+ * Grants access to users with switchadmin.write or an explicit per-switch grant.
  */
 function requireSwitchWrite(switchNameParam) {
   return function(req, res, next) {
     const user = getTokenUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorised' });
-    // .env users (no DB id) are treated as full admins
-    if (user.id === null) return next();
+    if (passwordChangeBlock(user, res)) return;
+    // .env fallback users only get dashboard/about, so no switch bypass for them
+    if (user.id == null) return res.status(403).json({ error: 'Forbidden' });
     const perms = user.permissions || {};
     // switchadmin.write grants unrestricted write access to any switch
     if (perms.switchadmin && perms.switchadmin.write) return next();
